@@ -1,0 +1,2344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTTP Message Signature Base Builder</title>
+<meta name="description" content="Rebuild the RFC 9421 signature base from a raw HTTP message and its Signature-Input header, line by line, with the rule that produced each line. Runs entirely in your browser.">
+<link rel="canonical" href="https://0xelitesystem.github.io/http-message-signature-base-builder/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="HTTP Message Signature Base Builder">
+<meta property="og:description" content="Rebuild the RFC 9421 signature base from a raw HTTP message and its Signature-Input header, line by line, with the rule that produced each line. Runs entirely in your browser.">
+<meta property="og:url" content="https://0xelitesystem.github.io/http-message-signature-base-builder/">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"HTTP Message Signature Base Builder","applicationCategory":"DeveloperApplication","operatingSystem":"Any (browser)","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://0xelitesystem.github.io/http-message-signature-base-builder/","author":{"@type":"Person","name":"0xelitesystem","url":"https://elitesystem.ai"}}
+</script>
+<style>
+/* Palette verified by math, not by rendering. Every text token was measured
+   against every background token in both themes with the WCAG relative
+   luminance formula. Zero pairs fall below 4.5:1.
+
+   DARK, on --bg #0a0a0a / --panel #141414 / --code #1c1c1c
+     --ink       #e8ebef  16.56  15.41  14.25
+     --ink-soft  #b9c0c9  10.79  10.04   9.29
+     --accent    #d4ff3a  17.12  15.94  14.74
+     --ok        #7ee08a  12.18  11.33  10.48
+     --warn      #f0c674  12.29  11.44  10.58
+     --err       #ff9b8a   9.72   9.04   8.36
+     --info      #8fd3ff  12.19  11.34  10.49
+     worst dark text pair: --err on --code, 8.36:1
+
+   LIGHT, on --bg #e8ebef / --panel #ffffff / --code #dcdfe4
+     --ink       #0a0a0a  16.56  19.80  14.82
+     --ink-soft  #3d444d   8.24   9.85   7.37
+     --accent    #2d6b00   5.46   6.53   4.89
+     --ok        #1a6127   6.31   7.55   5.65
+     --warn      #8a4d00   5.59   6.68   5.00
+     --err       #8f1d0c   7.48   8.94   6.69
+     --info      #0f4f7a   7.26   8.68   6.50
+     worst light text pair: --accent on --code, 4.89:1
+
+   --muted is a BORDER and RULE token only. It is never used as a text colour
+   at any size. Focus ring uses --accent, measured at 4.89:1 or better against
+   every surface it can land on, well clear of the 3:1 non-text minimum. */
+
+:root {
+  color-scheme: light;
+  --bg: #e8ebef;
+  --panel: #ffffff;
+  --code: #dcdfe4;
+  --ink: #0a0a0a;
+  --ink-soft: #3d444d;
+  --accent: #2d6b00;
+  --ok: #1a6127;
+  --warn: #8a4d00;
+  --err: #8f1d0c;
+  --info: #0f4f7a;
+  --muted: #5b636e;
+  --mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --panel: #141414;
+    --code: #1c1c1c;
+    --ink: #e8ebef;
+    --ink-soft: #b9c0c9;
+    --accent: #d4ff3a;
+    --ok: #7ee08a;
+    --warn: #f0c674;
+    --err: #ff9b8a;
+    --info: #8fd3ff;
+    --muted: #8f98a3;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0 1rem 4rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 var(--sans);
+}
+.wrap { max-width: 68rem; margin: 0 auto; }
+header { padding: 2rem 0 1rem; border-bottom: 1px solid var(--muted); }
+h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 .35rem; }
+h2 { font-size: 1.2rem; margin: 2.2rem 0 .6rem; }
+h3 { font-size: 1rem; margin: 1.4rem 0 .4rem; }
+p { margin: .6rem 0; }
+.lede { color: var(--ink-soft); margin: 0; }
+.note { color: var(--ink-soft); font-size: .92rem; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, select:focus-visible,
+textarea:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+code, kbd { font-family: var(--mono); font-size: .92em; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.grid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@media (min-width: 62rem) { .grid.two { grid-template-columns: 1fr 1fr; } }
+
+label { display: block; font-weight: 600; margin: .9rem 0 .25rem; }
+label .hint { font-weight: 400; color: var(--ink-soft); font-size: .88rem; }
+textarea, input[type="text"], select {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: .9rem;
+  color: var(--ink);
+  background: var(--code);
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  padding: .5rem;
+  tab-size: 4;
+}
+textarea { resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+select { font-family: var(--sans); }
+button {
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--code);
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  padding: .45rem .9rem;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .8rem; }
+
+.base {
+  background: var(--code);
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  padding: .5rem 0;
+  overflow-x: auto;
+  tab-size: 4;
+}
+.bline {
+  display: block;
+  font-family: var(--mono);
+  font-size: .9rem;
+  white-space: pre;
+  padding: .1rem .75rem;
+}
+/* Trailing spaces are load bearing in a signature base. A dotted right border
+   marks the end of a line that ends in one. The rule text is also spelled out
+   in the per-line label, so this is never signalled by a border alone. */
+.bline.tsp .txt { border-right: 2px dotted var(--muted); }
+.brule { color: var(--ink-soft); font-size: .8rem; padding: 0 .75rem .25rem; }
+.stale .bline, .stale .brule { color: var(--ink-soft); }
+.stale { border-style: dashed; }
+
+.badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-weight: 700;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 .35rem;
+  margin-right: .4rem;
+}
+.b-ok { color: var(--ok); }
+.b-err { color: var(--err); }
+.b-warn { color: var(--warn); }
+.b-info { color: var(--info); }
+
+.err-item { border-left: 3px solid var(--err); padding: .1rem 0 .1rem .7rem; margin: .9rem 0; }
+.err-item .what { color: var(--err); font-weight: 600; }
+.err-item .quote {
+  font-style: normal;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--muted);
+  padding-left: .6rem;
+  margin: .35rem 0 0;
+}
+.err-item .cid { font-family: var(--mono); }
+
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--muted); vertical-align: top; }
+th { color: var(--ink-soft); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+td.num { font-family: var(--mono); text-align: right; }
+td.res { font-family: var(--mono); font-weight: 700; }
+td.res.pass { color: var(--ok); }
+td.res.fail { color: var(--err); }
+.diffbox { font-family: var(--mono); font-size: .82rem; white-space: pre-wrap; word-break: break-all; background: var(--code); border: 1px solid var(--muted); border-radius: 4px; padding: .5rem; margin: .3rem 0 .6rem; }
+.tablewrap { overflow-x: auto; }
+
+.sxs { display: grid; gap: .8rem; grid-template-columns: 1fr; }
+@media (min-width: 52rem) { .sxs { grid-template-columns: 1fr 1fr; } }
+.sxs pre {
+  margin: 0;
+  background: var(--code);
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  padding: .6rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: .84rem;
+  white-space: pre;
+  tab-size: 4;
+}
+.sxs h3 { margin-top: 0; }
+ul { padding-left: 1.2rem; }
+li { margin: .25rem 0; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--muted); color: var(--ink-soft); font-size: .9rem; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>HTTP Message Signature Base Builder</h1>
+  <p class="lede">Rebuild the RFC 9421 signature base from a raw HTTP message and its <code>Signature-Input</code> header, line by line, with the rule that produced each line. Everything runs in your browser.</p>
+</header>
+
+<p>RFC 9421 (HTTP Message Signatures) does not sign the bytes that went over the wire. It signs a string you have to reconstruct: the <strong>signature base</strong>. A signature that fails to verify tells you nothing on its own. The base does. One wrong byte anywhere in it changes every byte of the MAC, which is exactly what the trailing newline control in the self test below demonstrates.</p>
+
+<p><strong>Scope.</strong> This page implements RFC 9421 only. The obsolete draft-cavage scheme, the one whose <code>Signature</code> header carries <code>keyId=...</code> and <code>headers="..."</code>, is <strong>not supported</strong> and will not parse here. Paste a <code>Signature-Input</code> value, not a cavage <code>Signature</code> value.</p>
+
+<p class="note">This is an independent tool. It is not affiliated with, endorsed by, or connected to the IETF, the RFC Editor, or any implementation of RFC 9421. Behaviour was reimplemented from the published specification at https://www.rfc-editor.org/rfc/rfc9421.txt and no code is reproduced here.</p>
+
+<div class="panel">
+  <div class="row">
+    <label for="example" style="margin:0">Load an RFC example</label>
+    <select id="example" style="width:auto;min-width:22rem"></select>
+    <button type="button" id="reset">Reset to the B.2.5 example</button>
+  </div>
+</div>
+
+<div class="grid two">
+  <div>
+    <label for="msg">Raw HTTP message <span class="hint">start line, header block, blank line, then the optional body</span></label>
+    <textarea id="msg" rows="12" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+
+    <label for="siginput">Signature-Input value <span class="hint">the field value, one or more labels</span></label>
+    <textarea id="siginput" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+
+    <div class="row">
+      <span>
+        <label for="label" style="margin:0">Signature label</label>
+        <select id="label" style="width:auto;min-width:12rem"></select>
+      </span>
+      <span>
+        <label for="scheme" style="margin:0">Scheme <span class="hint">for @scheme and @target-uri</span></label>
+        <select id="scheme" style="width:auto">
+          <option value="https">https</option>
+          <option value="http">http</option>
+        </select>
+      </span>
+    </div>
+
+    <div id="sfbox"></div>
+
+    <label for="reqmsg">Originating request <span class="hint">only needed when the message above is a response and a component carries ;req</span></label>
+    <textarea id="reqmsg" rows="5" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+  </div>
+
+  <div>
+    <h2 style="margin-top:0">Signature base</h2>
+    <div id="result" aria-live="polite" aria-atomic="true"></div>
+
+    <h2>HMAC-SHA-256 check <span class="note" style="font-weight:400">(optional)</span></h2>
+    <p class="note">Symmetric only, by design. See <a href="#crypto-scope">why</a>.</p>
+    <label for="secret">Shared secret, base64</label>
+    <input type="text" id="secret" spellcheck="false" autocapitalize="off" autocorrect="off">
+    <label for="sigval">Signature value to compare against <span class="hint">the <code>Signature</code> field value, same label</span></label>
+    <input type="text" id="sigval" spellcheck="false" autocapitalize="off" autocorrect="off">
+    <div id="hmac" aria-live="polite" style="margin-top:.8rem"></div>
+  </div>
+</div>
+
+<h2 id="divergence">Why two conforming stacks end up with different bases</h2>
+<p>A verifier does not choose <code>;bs</code> or <code>;sf</code>. Those parameters travel inside the <code>Signature-Input</code> inner list, and a conforming verifier reads them out of that header and applies them. Divergence comes from somewhere else. Three real cases:</p>
+
+<h3>1. The verifier cannot serialize the type</h3>
+<p>Section 2.1.1 says it outright:</p>
+<blockquote class="note" style="border-left:2px solid var(--muted);margin:.4rem 0;padding-left:.8rem">If the application does not know the type of the field or does not know how to serialize the type of the field, the use of this flag will produce an error. As a consequence, the signer can only reliably sign fields using this flag when the verifier's system knows the type as well.</blockquote>
+<p>That is why this page refuses to guess a Structured Field type. When a component carries <code>;sf</code>, you declare the type or the build aborts.</p>
+
+<h3>2. An intermediary merged or split a multi-valued field</h3>
+<p>Without <code>;bs</code>, the two forms below collapse to an identical base line, so a merge is invisible. With <code>;bs</code>, they do not, which is the whole point of the flag. All four strings are from Section 2.1.3.</p>
+<div class="sxs">
+  <div>
+    <h3>Two field instances</h3>
+    <pre>Example-Header: value, with, lots
+Example-Header: of, commas</pre>
+    <p class="note">no parameter</p>
+    <pre>"example-header": value, with, lots, of, commas</pre>
+    <p class="note">with <code>;bs</code></p>
+    <pre>"example-header";bs: :dmFsdWUsIHdpdGgsIGxvdHM=:, :b2YsIGNvbW1hcw==:</pre>
+  </div>
+  <div>
+    <h3>One merged instance</h3>
+    <pre>Example-Header: value, with, lots, of, commas</pre>
+    <p class="note">no parameter, identical to the left</p>
+    <pre>"example-header": value, with, lots, of, commas</pre>
+    <p class="note">with <code>;bs</code>, now different</p>
+    <pre>"example-header";bs: :dmFsdWUsIHdpdGgsIGxvdHMsIG9mLCBjb21tYXM=:</pre>
+  </div>
+</div>
+<p class="note">All four of those lines are recomputed by the self test below, from the two messages, rather than being printed here as decoration.</p>
+
+<h3>3. The signer applied <code>;sf</code> and an intermediary reserialized the field</h3>
+<p>With <code>;sf</code> the base line carries the strict serialization of the parsed structure. If an intermediary rewrites the field on the way, for example by collapsing internal whitespace or reordering nothing but reserializing anyway, signer and verifier parse different input and produce different bases from the same nominal field.</p>
+
+<h2 id="qp">The @query-param encoder</h2>
+<p>Section 2.2.8 form-decodes the name and the value, then re-encodes with the urlencoded percent-encode set. Two obvious shortcuts are both wrong, in opposite directions. <code>URLSearchParams</code> turns a space into a plus sign, and the RFC's own printed base line requires <code>%20</code>. <code>encodeURIComponent</code> leaves <code>! ~ ' ( ) </code> unescaped, and the urlencoded set escapes those.</p>
+<p>What this page does: form-decode (every plus sign becomes a space, then percent-decode), then re-encode byte by byte, keeping literal only <span id="keepcount">the alphanumerics plus <code>* - . _</code></span>, and emitting every other byte as a percent sign and two uppercase hex digits. The three worked examples below come straight from the Section 2.2.8 query string and are recomputed live by the self test.</p>
+<div class="tablewrap"><table id="qptable">
+  <thead><tr><th>Query parameter as sent</th><th>Base line this page produces</th></tr></thead>
+  <tbody></tbody>
+</table></div>
+
+<h2 id="serialiser">Structured Fields types this page implements</h2>
+<p>A partial serializer emits a wrong base with total confidence, which is worse than emitting nothing. So the list is closed and it is short. For <code>;sf</code> and <code>;key</code>, this page implements:</p>
+<ul id="sftypes"></ul>
+<p>Anything outside that list raises a visible error naming the unsupported type. Per Section 2.5 the page also raises, never guesses, on a component parameter it does not understand, on one that does not apply to the component it is attached to, and on <code>;bs</code> combined with <code>;sf</code>, which the RFC names as its example of mutually incompatible parameters.</p>
+
+<h2 id="aborts">Conditions that abort the build with no base at all</h2>
+<p>Section 2.5 requires that all errors "MUST fail the algorithm immediately, without outputting a signature base". This page obeys that literally: on any error it renders the diagnosis and suppresses the base pane entirely. It never renders a partial base.</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Condition</th><th>RFC section</th></tr></thead>
+  <tbody>
+    <tr><td>Duplicate component identifier, including its parameters</td><td>2.5 step 2.1</td></tr>
+    <tr><td><code>@signature-params</code> enumerated inside the covered component list</td><td>2.3</td></tr>
+    <tr><td><code>@status</code> used in a request</td><td>2.2.9</td></tr>
+    <tr><td>A request-targeted derived component used on a response without <code>;req</code></td><td>2.2</td></tr>
+    <tr><td><code>;req</code> used on a signature whose target message is a request</td><td>2.5 step 2.5</td></tr>
+    <tr><td><code>;req</code> used but no originating request supplied</td><td>2.4</td></tr>
+    <tr><td><code>;bs</code> combined with <code>;sf</code>, or with <code>;key</code></td><td>2.5 step 2.5, 2.1</td></tr>
+    <tr><td>A component parameter the tool does not understand</td><td>2.5 step 2.5</td></tr>
+    <tr><td>A component parameter that does not apply to the component it is attached to: <code>;sf</code>, <code>;key</code>, <code>;bs</code> or <code>;tr</code> on a derived component, or <code>;name</code> on anything but <code>@query-param</code></td><td>2.5 step 2.5</td></tr>
+    <tr><td>A named field absent from the message</td><td>2.5</td></tr>
+    <tr><td>A <code>;tr</code> component whose chunked body cannot be walked to its trailer section</td><td>2.1.4</td></tr>
+    <tr><td>A <code>;key</code> naming a Dictionary member that does not exist</td><td>2.1.2</td></tr>
+    <tr><td>A <code>@query-param</code> absent from the query, or occurring more than once</td><td>2.2.8</td></tr>
+    <tr><td>A <code>;sf</code> field whose Structured Field type is undeclared or unimplemented</td><td>2.1.1, 2.5</td></tr>
+    <tr><td>A component value containing a newline</td><td>2</td></tr>
+    <tr><td>Any non-ASCII character in the finished base</td><td>2.5 step 4</td></tr>
+  </tbody>
+</table></div>
+<p class="note">Every error found is reported, not just the first, ordered by position in the covered component list, so fixing a <code>Signature-Input</code> by hand does not cost one round trip per mistake. Separately from the RFC conditions above, a single field value carrying more than 5000 Dictionary members or parameters is refused by name rather than ground through, so a hostile paste cannot freeze the tab.</p>
+
+<h2 id="crypto-scope">Why the crypto panel is HMAC-SHA-256 only</h2>
+<p>No asymmetric verification, no key import, no RSA, ECDSA or Ed25519 path. The reason is in the RFC. Its RSA-PSS and ECDSA examples each carry the note that the algorithm "is non-deterministic, meaning that a different signature value will be created every time the algorithm is run", so comparing a freshly computed value against the printed one is only honest for the deterministic <code>hmac-sha256</code> case in Appendix B.2.5. The base string is the deliverable here. The MAC is the garnish, and when <code>crypto.subtle</code> is unavailable the page degrades to base-only output and says so.</p>
+
+<h2 id="selftest">Self test</h2>
+<p>The suite runs the RFC's own printed vectors in this page, in your browser, against the same code that builds your base above. It includes a <strong>positive control</strong>, an assertion written to fail, so a suite that silently stops running is detectable: if the control ever reports PASS, the suite is not doing what it says.</p>
+<div class="row">
+  <button type="button" id="runtests">Run self test</button>
+  <label for="showall" style="margin:0;font-weight:400"><input type="checkbox" id="showall" style="width:auto;vertical-align:middle"> Show expected and got values for every row</label>
+</div>
+<div id="testsummary" aria-live="polite" style="margin-top:.8rem"></div>
+<div class="tablewrap"><table id="testtable" hidden>
+  <thead><tr><th>Vector</th><th>RFC section</th><th class="num">Expected bytes</th><th class="num">Got bytes</th><th>Result</th></tr></thead>
+  <tbody></tbody>
+</table></div>
+
+<h2>Privacy</h2>
+<p>Everything on this page runs in your browser. There is no network call of any kind: no request for code, fonts, analytics or telemetry, and nothing you paste is transmitted anywhere. Save the file and it works offline from <code>file://</code>. The one browser API this page reaches for is <code>crypto.subtle</code>, for the optional HMAC, and it is feature detected.</p>
+
+<footer>
+  <p>MIT licensed. Copyright (c) 2026 0xelitesystem. Source: https://github.com/0xelitesystem/http-message-signature-base-builder</p>
+  <p><a href="https://elitesystem.ai">elitesystem.ai</a></p>
+</footer>
+
+</div>
+
+<script>
+/* ==== CORE START ==== */
+'use strict';
+/* RFC 9421 signature base builder. Behaviour reimplemented from the published
+   specification at https://www.rfc-editor.org/rfc/rfc9421.txt. No code is
+   reproduced here. Section numbers in comments refer to that document. */
+
+var TE = new TextEncoder();
+var TD = new TextDecoder();
+
+function bytesToBase64(bytes) {
+  var CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var out = '', i;
+  for (i = 0; i + 2 < bytes.length; i += 3) {
+    var n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out += CH[(n >> 18) & 63] + CH[(n >> 12) & 63] + CH[(n >> 6) & 63] + CH[n & 63];
+  }
+  var rem = bytes.length - i;
+  if (rem === 1) {
+    var a = bytes[i] << 16;
+    out += CH[(a >> 18) & 63] + CH[(a >> 12) & 63] + '==';
+  } else if (rem === 2) {
+    var b = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += CH[(b >> 18) & 63] + CH[(b >> 12) & 63] + CH[(b >> 6) & 63] + '=';
+  }
+  return out;
+}
+
+function SfvError(message, offset) { this.name = 'SfvError'; this.message = message; this.offset = offset; }
+SfvError.prototype = Object.create(Error.prototype);
+SfvError.prototype.constructor = SfvError;
+
+function base64ToBytes(s) {
+  var CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var clean = String(s).replace(/\s+/g, '').replace(/=+$/, '');
+  var out = [], acc = 0, nbits = 0;
+  for (var i = 0; i < clean.length; i++) {
+    var v = CH.indexOf(clean[i]);
+    if (v < 0) throw new SfvError('base64 input contains "' + clean[i] + '", which is outside the base64 alphabet', i);
+    acc = (acc << 6) | v; nbits += 6;
+    if (nbits >= 8) { nbits -= 8; out.push((acc >> nbits) & 255); }
+  }
+  /* A base64 encoding always comes in groups of four characters, so a leftover
+     group of one carries six bits that belong to no byte. Padding cannot be
+     synthesized for it, the decode fails, and so must the Structured Field
+     parse. Leftover bits in a valid final group must all be zero. */
+  if (clean.length % 4 === 1) {
+    throw new SfvError('base64 input ends in a leftover group of one character, which cannot decode to any byte', clean.length - 1);
+  }
+  if (nbits > 0 && (acc & ((1 << nbits) - 1)) !== 0) {
+    throw new SfvError('base64 input carries non-zero bits after the last whole byte, so it is not a valid encoding of those bytes', clean.length - 1);
+  }
+  return Uint8Array.from(out);
+}
+
+/* ---------- Structured Field Values, as referenced by RFC 9421 ---------- */
+/* Implemented types: Integer, Decimal, String, Token, Byte Sequence, Boolean,
+   Inner List, List, Dictionary, each with parameters. Anything else raises. */
+
+var LC = 'abcdefghijklmnopqrstuvwxyz';
+var UC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+var DIGIT = '0123456789';
+var TCHAR = "!#$%&'*+-.^_`|~" + DIGIT + LC + UC;
+/* Hostile input must not hang the tab. A single field value carrying more than
+   this many Dictionary members or parameters is refused by name rather than
+   ground through. Real fields are orders of magnitude smaller. */
+var SFV_MEMBER_CAP = 5000;
+
+function isDigit(c) { return c >= '0' && c <= '9'; }
+function isAlpha(c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+function isLcAlpha(c) { return c >= 'a' && c <= 'z'; }
+
+function SfvParser(input) { this.s = input; this.i = 0; }
+SfvParser.prototype.eof = function () { return this.i >= this.s.length; };
+SfvParser.prototype.peek = function () { return this.s[this.i]; };
+SfvParser.prototype.skipSp = function () { while (!this.eof() && this.s[this.i] === ' ') this.i++; };
+SfvParser.prototype.skipOws = function () { while (!this.eof() && (this.s[this.i] === ' ' || this.s[this.i] === '\t')) this.i++; };
+SfvParser.prototype.fail = function (msg) { throw new SfvError(msg, this.i); };
+
+SfvParser.prototype.parseKey = function () {
+  var c = this.peek();
+  if (c === undefined || !(isLcAlpha(c) || c === '*')) this.fail('expected a key starting with a lowercase letter or an asterisk');
+  var out = '';
+  while (!this.eof()) {
+    var d = this.s[this.i];
+    if (isLcAlpha(d) || isDigit(d) || d === '_' || d === '-' || d === '.' || d === '*') { out += d; this.i++; }
+    else break;
+  }
+  return out;
+};
+
+SfvParser.prototype.parseParams = function () {
+  var params = [], slot = Object.create(null);
+  while (!this.eof() && this.s[this.i] === ';') {
+    this.i++;
+    this.skipSp();
+    var k = this.parseKey();
+    var v = { t: 'bool', v: true };
+    if (!this.eof() && this.s[this.i] === '=') { this.i++; v = this.parseBareItem(); }
+    /* Parameters are an ordered map: a repeated key overwrites the earlier
+       value where it already sits, it does not move to the end. The slot index
+       keeps that lookup O(1), so a long parameter list stays linear. */
+    var at = slot['$' + k];
+    if (at !== undefined) { params[at][1] = v; }
+    else { slot['$' + k] = params.length; params.push([k, v]); }
+    if (params.length > SFV_MEMBER_CAP) this.fail('more than ' + SFV_MEMBER_CAP + ' parameters on one item, which this tool refuses rather than grinding through');
+  }
+  return params;
+};
+
+SfvParser.prototype.parseBareItem = function () {
+  var c = this.peek();
+  if (c === undefined) this.fail('expected a bare item but reached the end of the input');
+  if (isDigit(c) || c === '-') return this.parseNumber();
+  if (c === '"') return this.parseString();
+  if (c === ':') return this.parseByteSequence();
+  if (c === '?') return this.parseBoolean();
+  if (isAlpha(c) || c === '*') return this.parseToken();
+  this.fail('character "' + c + '" cannot start a Structured Field bare item');
+};
+
+SfvParser.prototype.parseNumber = function () {
+  var sign = 1, type = 'int', out = '';
+  if (this.s[this.i] === '-') { sign = -1; this.i++; }
+  if (this.eof() || !isDigit(this.s[this.i])) this.fail('expected a digit in a number');
+  while (!this.eof()) {
+    var c = this.s[this.i];
+    if (isDigit(c)) { out += c; this.i++; }
+    else if (c === '.' && type === 'int') {
+      if (out.length > 12) this.fail('a Decimal may carry at most 12 digits before the decimal point');
+      out += c; type = 'dec'; this.i++;
+    } else break;
+    if (type === 'int' && out.length > 15) this.fail('an Integer may carry at most 15 digits');
+    if (type === 'dec' && out.length > 16) this.fail('a Decimal may carry at most 16 characters');
+  }
+  if (type === 'int') return { t: 'int', v: sign * parseInt(out, 10) };
+  if (out[out.length - 1] === '.') this.fail('a Decimal must carry at least one digit after the decimal point');
+  var frac = out.split('.')[1];
+  if (frac.length > 3) this.fail('a Decimal may carry at most 3 digits after the decimal point');
+  return { t: 'dec', v: sign * parseFloat(out) };
+};
+
+SfvParser.prototype.parseString = function () {
+  this.i++;
+  var out = '';
+  while (!this.eof()) {
+    var c = this.s[this.i]; this.i++;
+    if (c === '\\') {
+      if (this.eof()) this.fail('a String ended with a trailing backslash');
+      var d = this.s[this.i]; this.i++;
+      if (d !== '"' && d !== '\\') this.fail('only a double quote or a backslash may be escaped inside a String');
+      out += d;
+    } else if (c === '"') {
+      return { t: 'str', v: out };
+    } else {
+      var cp = c.charCodeAt(0);
+      if (cp < 0x20 || cp >= 0x7f) this.fail('a String may only contain printable ASCII characters');
+      out += c;
+    }
+  }
+  this.fail('unterminated quoted String, no closing double quote');
+};
+
+SfvParser.prototype.parseByteSequence = function () {
+  this.i++;
+  var out = '';
+  while (!this.eof()) {
+    var c = this.s[this.i]; this.i++;
+    if (c === ':') return { t: 'bin', v: base64ToBytes(out) };
+    out += c;
+  }
+  this.fail('unterminated Byte Sequence, no closing colon');
+};
+
+SfvParser.prototype.parseBoolean = function () {
+  this.i++;
+  var c = this.s[this.i];
+  if (c !== '0' && c !== '1') this.fail('a Boolean must be ?0 or ?1');
+  this.i++;
+  return { t: 'bool', v: c === '1' };
+};
+
+SfvParser.prototype.parseToken = function () {
+  var out = this.s[this.i]; this.i++;
+  while (!this.eof()) {
+    var c = this.s[this.i];
+    if (TCHAR.indexOf(c) >= 0 || c === ':' || c === '/') { out += c; this.i++; } else break;
+  }
+  return { t: 'tok', v: out };
+};
+
+SfvParser.prototype.parseItem = function () {
+  var bare = this.parseBareItem();
+  bare.params = this.parseParams();
+  return bare;
+};
+
+SfvParser.prototype.parseInnerList = function () {
+  if (this.s[this.i] !== '(') this.fail('expected an Inner List opening parenthesis');
+  this.i++;
+  var items = [];
+  for (;;) {
+    this.skipSp();
+    if (this.eof()) this.fail('unterminated Inner List, no closing parenthesis');
+    if (this.s[this.i] === ')') {
+      this.i++;
+      return { t: 'ilist', v: items, params: this.parseParams() };
+    }
+    items.push(this.parseItem());
+    if (!this.eof() && this.s[this.i] !== ' ' && this.s[this.i] !== ')') this.fail('Inner List members must be separated by a single space');
+  }
+};
+
+SfvParser.prototype.parseItemOrInnerList = function () {
+  return this.peek() === '(' ? this.parseInnerList() : this.parseItem();
+};
+
+SfvParser.prototype.parseList = function () {
+  var members = [];
+  while (!this.eof()) {
+    members.push(this.parseItemOrInnerList());
+    this.skipOws();
+    if (this.eof()) return members;
+    if (this.s[this.i] !== ',') this.fail('expected a comma between List members');
+    this.i++;
+    this.skipOws();
+    if (this.eof()) this.fail('a List must not end with a trailing comma');
+  }
+  return members;
+};
+
+SfvParser.prototype.parseDictionary = function () {
+  var members = [], slot = Object.create(null);
+  while (!this.eof()) {
+    var k = this.parseKey();
+    var v;
+    if (!this.eof() && this.s[this.i] === '=') { this.i++; v = this.parseItemOrInnerList(); }
+    else { v = { t: 'bool', v: true, params: this.parseParams() }; }
+    /* Same ordered-map rule as parameters: a repeated key overwrites in place
+       and keeps its original position, and the slot index keeps it O(1). */
+    var at = slot['$' + k];
+    if (at !== undefined) { members[at][1] = v; }
+    else { slot['$' + k] = members.length; members.push([k, v]); }
+    if (members.length > SFV_MEMBER_CAP) this.fail('more than ' + SFV_MEMBER_CAP + ' Dictionary members in one field value, which this tool refuses rather than grinding through');
+    this.skipOws();
+    if (this.eof()) return members;
+    if (this.s[this.i] !== ',') this.fail('expected a comma between Dictionary members');
+    this.i++;
+    this.skipOws();
+    if (this.eof()) this.fail('a Dictionary must not end with a trailing comma');
+  }
+  return members;
+};
+
+function sfvParse(input, type) {
+  var p = new SfvParser(input);
+  p.skipSp();
+  var out;
+  if (type === 'dictionary') out = p.parseDictionary();
+  else if (type === 'list') out = p.parseList();
+  else if (type === 'item') out = p.parseItemOrInnerList();
+  else throw new SfvError('unsupported Structured Field type "' + type + '"', 0);
+  p.skipSp();
+  if (!p.eof()) p.fail('trailing characters after the end of the ' + type);
+  return out;
+}
+
+function sfSerializeBare(b) {
+  switch (b.t) {
+    case 'int': return String(b.v);
+    case 'dec': {
+      var n = Math.round(b.v * 1000) / 1000;
+      var s = String(n);
+      if (s.indexOf('.') < 0) s += '.0';
+      return s;
+    }
+    case 'str': return '"' + String(b.v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    case 'tok': return b.v;
+    case 'bin': return ':' + bytesToBase64(b.v) + ':';
+    case 'bool': return b.v ? '?1' : '?0';
+    default: throw new SfvError('cannot serialize an unsupported Structured Field type "' + b.t + '"', 0);
+  }
+}
+
+function sfSerializeParams(params) {
+  var out = '';
+  (params || []).forEach(function (kv) {
+    out += ';' + kv[0];
+    if (!(kv[1].t === 'bool' && kv[1].v === true)) out += '=' + sfSerializeBare(kv[1]);
+  });
+  return out;
+}
+
+function sfSerializeValue(v) {
+  if (v.t === 'ilist') {
+    return '(' + v.v.map(function (m) { return sfSerializeValue(m); }).join(' ') + ')' + sfSerializeParams(v.params);
+  }
+  return sfSerializeBare(v) + sfSerializeParams(v.params);
+}
+
+function sfSerializeList(members) {
+  return members.map(function (m) { return sfSerializeValue(m); }).join(', ');
+}
+
+function sfSerializeDictionary(members) {
+  return members.map(function (kv) {
+    var v = kv[1];
+    if (v.t === 'bool' && v.v === true) return kv[0] + sfSerializeParams(v.params);
+    return kv[0] + '=' + sfSerializeValue(v);
+  }).join(', ');
+}
+
+/* ---------- HTTP message parsing ---------- */
+
+function MessageError(message, line) { this.name = 'MessageError'; this.message = message; this.line = line; }
+MessageError.prototype = Object.create(Error.prototype);
+MessageError.prototype.constructor = MessageError;
+
+function splitLines(raw) { return raw.replace(/\r\n/g, '\n').split('\n'); }
+
+function parseFieldBlock(lines, startIndex, label) {
+  var fields = [], i = startIndex;
+  for (; i < lines.length; i++) {
+    var line = lines[i];
+    if (line === '') { i++; break; }
+    if (line[0] === ' ' || line[0] === '\t') {
+      if (fields.length === 0) throw new MessageError('line ' + (i + 1) + ' begins with whitespace but there is no preceding ' + label + ' field to fold it into', i + 1);
+      /* Section 2.1 step 3: obsolete line folding collapses to a single space. */
+      fields[fields.length - 1].value = fields[fields.length - 1].value.replace(/[ \t]+$/, '') + ' ' + line.replace(/^[ \t]+/, '');
+      continue;
+    }
+    var colon = line.indexOf(':');
+    if (colon < 1) throw new MessageError('line ' + (i + 1) + ' is not a valid ' + label + ' field. Expected "Name: value", got ' + JSON.stringify(line.slice(0, 60)), i + 1);
+    fields.push({ name: line.slice(0, colon).toLowerCase(), rawName: line.slice(0, colon), value: line.slice(colon + 1) });
+  }
+  /* Section 2.1 step 2: strip leading and trailing whitespace. */
+  fields.forEach(function (f) { f.value = f.value.replace(/^[ \t]+/, '').replace(/[ \t]+$/, ''); });
+  return { fields: fields, next: i };
+}
+
+/* A chunk size is a count of BYTES, so the walk has to index bytes. Indexing
+   the JS string instead desynchronizes on the first multi-byte UTF-8 character
+   in any chunk and the walk then loses the trailer section entirely. Returns
+   { fields, complete }: complete is false when the walk could not be finished,
+   so the caller can say so rather than reporting an empty trailer section as
+   fact. */
+function parseChunkedTrailers(body) {
+  var bytes = TE.encode(body), pos = 0, guard = 0;
+  function lineAt(p) {
+    for (var i = p; i < bytes.length; i++) {
+      if (bytes[i] === 10) {
+        var end = (i > p && bytes[i - 1] === 13) ? i - 1 : i;
+        return { text: TD.decode(bytes.subarray(p, end)), next: i + 1 };
+      }
+    }
+    return null;
+  }
+  while (pos < bytes.length && guard++ < 10000) {
+    var ln = lineAt(pos);
+    if (!ln) return { fields: [], complete: false };
+    var hex = ln.text.split(';')[0].trim();
+    if (!/^[0-9a-fA-F]{1,8}$/.test(hex)) return { fields: [], complete: false };
+    var size = parseInt(hex, 16);
+    pos = ln.next;
+    if (size === 0) {
+      var rest = splitLines(TD.decode(bytes.subarray(pos)));
+      try { return { fields: parseFieldBlock(rest, 0, 'trailer').fields, complete: true }; }
+      catch (e) { return { fields: [], complete: false }; }
+    }
+    pos += size;
+    if (pos > bytes.length) return { fields: [], complete: false };
+    if (bytes[pos] === 13) pos++;
+    if (bytes[pos] === 10) pos++;
+  }
+  return { fields: [], complete: false };
+}
+
+function parseHttpMessage(raw) {
+  if (typeof raw !== 'string' || raw.trim() === '') throw new MessageError('the message is empty', 1);
+  var lines = splitLines(raw);
+  var start = 0;
+  while (start < lines.length && lines[start].trim() === '') start++;
+  if (start >= lines.length) throw new MessageError('the message is empty', 1);
+  var startLine = lines[start].replace(/[ \t]+$/, '');
+  var msg = { startLine: startLine };
+  var respMatch = /^(HTTP\/[0-9](?:\.[0-9])?)[ ]+([0-9]{3})(?:[ ]+(.*))?$/.exec(startLine);
+  if (respMatch) {
+    msg.kind = 'response';
+    msg.httpVersion = respMatch[1];
+    msg.status = respMatch[2];
+  } else {
+    var reqMatch = /^([!#$%&'*+\-.^_`|~0-9A-Za-z]+)[ ]+(\S+)[ ]+(HTTP\/[0-9](?:\.[0-9])?)$/.exec(startLine);
+    if (!reqMatch) {
+      throw new MessageError('line ' + (start + 1) + ' is not a start line. Expected a request line "METHOD target HTTP/1.1" or a status line "HTTP/1.1 200 OK", got ' + JSON.stringify(startLine.slice(0, 70)), start + 1);
+    }
+    msg.kind = 'request';
+    msg.method = reqMatch[1];
+    msg.target = reqMatch[2];
+    msg.httpVersion = reqMatch[3];
+  }
+  var block = parseFieldBlock(lines, start + 1, 'header');
+  msg.fields = block.fields;
+  msg.body = lines.slice(block.next).join('\n');
+  var te = msg.fields.filter(function (f) { return f.name === 'transfer-encoding'; })
+    .map(function (f) { return f.value.toLowerCase(); }).join(', ');
+  if (te.indexOf('chunked') >= 0) {
+    var walked = parseChunkedTrailers(msg.body);
+    msg.trailers = walked.fields;
+    msg.trailersUnwalkable = !walked.complete;
+  } else {
+    msg.trailers = [];
+    msg.trailersUnwalkable = false;
+  }
+  return msg;
+}
+
+/* ---------- the urlencoded percent-encode set, Section 2.2.8 ---------- */
+/* Keep set is exactly [A-Za-z0-9] plus * - . _ ; every other byte is emitted
+   as a percent sign and two uppercase hex digits. Deliberately not
+   URLSearchParams, which emits a plus sign for a space, and deliberately not
+   encodeURIComponent, which leaves ! ~ ' ( ) unescaped. */
+var QP_KEEP = (function () {
+  var set = Object.create(null);
+  var chars = LC + UC + DIGIT + '*-._';
+  for (var i = 0; i < chars.length; i++) set[chars.charCodeAt(i)] = true;
+  return set;
+})();
+var QP_KEEP_COUNT = Object.keys(QP_KEEP).length;
+
+function isHexDigit(c) { return c !== undefined && /^[0-9A-Fa-f]$/.test(c); }
+
+function formDecodeToBytes(s) {
+  var out = [];
+  for (var i = 0; i < s.length; i++) {
+    var c = s[i];
+    if (c === '+') { out.push(0x20); continue; }
+    if (c === '%' && isHexDigit(s[i + 1]) && isHexDigit(s[i + 2])) {
+      out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; continue;
+    }
+    /* Walk by code point, not by UTF-16 code unit. Encoding each half of a
+       surrogate pair on its own turns any character outside the Basic
+       Multilingual Plane into two U+FFFD replacement characters, and the
+       result is pure ASCII, so the Section 2.5 step 4 non-ASCII gate would
+       never notice the corruption. */
+    var ch = String.fromCodePoint(s.codePointAt(i));
+    if (ch.length === 2) i++;
+    var enc = TE.encode(ch);
+    for (var j = 0; j < enc.length; j++) out.push(enc[j]);
+  }
+  return out;
+}
+
+function percentEncodeBytes(bytes) {
+  var out = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i];
+    if (QP_KEEP[b]) out += String.fromCharCode(b);
+    else out += '%' + (b < 16 ? '0' : '') + b.toString(16).toUpperCase();
+  }
+  return out;
+}
+
+function reencodeQueryToken(s) { return percentEncodeBytes(formDecodeToBytes(s)); }
+
+function parseQueryTuples(query) {
+  var q = query.charAt(0) === '?' ? query.slice(1) : query;
+  var tuples = [];
+  if (q === '') return tuples;
+  var parts = q.split('&');
+  for (var i = 0; i < parts.length && i < 5000; i++) {
+    var pair = parts[i];
+    if (pair === '') continue;
+    var eq = pair.indexOf('=');
+    var name = eq < 0 ? pair : pair.slice(0, eq);
+    var value = eq < 0 ? '' : pair.slice(eq + 1);
+    tuples.push({ name: reencodeQueryToken(name), value: reencodeQueryToken(value) });
+  }
+  return tuples;
+}
+
+/* ---------- derived components, Section 2.2 ---------- */
+
+var DEFAULT_PORT = { http: '80', https: '443' };
+
+function targetForm(target) {
+  if (target === '*') return 'asterisk';
+  if (/^[A-Za-z][A-Za-z0-9+\-.]*:\/\//.test(target)) return 'absolute';
+  if (target.charAt(0) === '/') return 'origin';
+  return 'authority';
+}
+
+function normalizeAuthority(authority, scheme) {
+  var hostport = authority;
+  var at = hostport.lastIndexOf('@');
+  if (at >= 0) hostport = hostport.slice(at + 1);
+  var host = hostport, port = '';
+  if (hostport.charAt(0) === '[') {
+    var close = hostport.indexOf(']');
+    if (close >= 0) {
+      host = hostport.slice(0, close + 1);
+      if (hostport.charAt(close + 1) === ':') port = hostport.slice(close + 2);
+    }
+  } else {
+    var c = hostport.lastIndexOf(':');
+    if (c >= 0) { host = hostport.slice(0, c); port = hostport.slice(c + 1); }
+  }
+  host = host.toLowerCase();
+  if (port !== '' && port !== DEFAULT_PORT[scheme]) return host + ':' + port;
+  return host;
+}
+
+/* Slice @path and @query straight out of the raw request target string.
+   Routing the target through a URL object would normalize percent-encoded
+   octets, and Section 2.2.6 requires them preserved before decoding. */
+function splitTarget(target) {
+  var form = targetForm(target);
+  var rest = target;
+  var authority = null;
+  if (form === 'absolute') {
+    var schemeEnd = target.indexOf('://');
+    var afterScheme = target.slice(schemeEnd + 3);
+    var slash = afterScheme.search(/[/?#]/);
+    authority = slash < 0 ? afterScheme : afterScheme.slice(0, slash);
+    rest = slash < 0 ? '' : afterScheme.slice(slash);
+  } else if (form !== 'origin') {
+    return { form: form, authority: form === 'authority' ? target : null, path: null, query: null, hasQuery: false };
+  }
+  var hash = rest.indexOf('#');
+  if (hash >= 0) rest = rest.slice(0, hash);
+  var qm = rest.indexOf('?');
+  var path = qm < 0 ? rest : rest.slice(0, qm);
+  /* Section 2.2.7 gives the same "?" value to an absent query and to a present
+     but empty one, so @query cannot tell them apart and does not need to.
+     @target-uri does: a target ending in a bare question mark keeps it. hasQuery
+     carries that distinction, which the "?" sentinel alone cannot. */
+  var query = qm < 0 ? '?' : rest.slice(qm);
+  if (path === '') path = '/';
+  return { form: form, authority: authority, path: path, query: query, hasQuery: qm >= 0 };
+}
+
+/* ---------- the signature base, Section 2.5 ---------- */
+
+var KNOWN_COMPONENT_PARAMS = { sf: true, key: true, bs: true, req: true, tr: true, name: true };
+var DERIVED = {
+  '@method': '2.2.1', '@target-uri': '2.2.2', '@authority': '2.2.3', '@scheme': '2.2.4',
+  '@request-target': '2.2.5', '@path': '2.2.6', '@query': '2.2.7', '@query-param': '2.2.8',
+  '@status': '2.2.9'
+};
+var REQUEST_ONLY = ['@method', '@target-uri', '@authority', '@scheme', '@request-target', '@path', '@query', '@query-param'];
+var SF_TYPES = ['Integer', 'Decimal', 'String', 'Token', 'Byte Sequence', 'Boolean', 'Inner List', 'List', 'Dictionary'];
+
+function BaseError(code, section, message, quote) {
+  this.code = code; this.section = section; this.message = message; this.quote = quote || '';
+}
+
+function componentIdentifier(comp) {
+  return sfSerializeBare({ t: 'str', v: comp.name }) + sfSerializeParams(comp.params);
+}
+
+function paramGet(comp, key) {
+  for (var i = 0; i < comp.params.length; i++) if (comp.params[i][0] === key) return comp.params[i][1];
+  return null;
+}
+
+/* Section 2: parameter order is preserved when processing, but is not
+   significant when comparing two identifiers for equality. */
+function equalityKey(comp) {
+  var parts = comp.params.map(function (kv) { return kv[0] + '=' + sfSerializeBare(kv[1]); }).sort();
+  return JSON.stringify([comp.name, parts]);
+}
+
+function fieldInstances(ctx, name, fromTrailers) {
+  var src = fromTrailers ? ctx.trailers : ctx.fields;
+  return src.filter(function (f) { return f.name === name; }).map(function (f) { return f.value; });
+}
+
+function canonicalizeField(ctx, comp, opts) {
+  var name = comp.name;
+  var tr = paramGet(comp, 'tr');
+  var fromTrailers = !!(tr && tr.t === 'bool' && tr.v === true);
+  var instances = fieldInstances(ctx, name, fromTrailers);
+  var where = fromTrailers ? 'trailer' : 'header';
+  if (instances.length === 0) {
+    if (fromTrailers && ctx.trailersUnwalkable) {
+      throw new BaseError('chunked-body-unwalkable', '2.1.4',
+        'the chunked body of the ' + ctx.role + ' could not be walked to its trailer section, so no trailer field named "' + name + '" can be read from it. Check that every chunk size line is the byte count of the chunk that follows it and that the body ends with a zero-length chunk.',
+        'The component name identifies a field that is not present in the message or whose value is malformed.');
+    }
+    throw new BaseError('field-absent', '2.5',
+      'no ' + where + ' field named "' + name + '" is present in the ' + ctx.role + ', so the component value cannot be obtained',
+      'The component name identifies a field that is not present in the message or whose value is malformed.');
+  }
+  var bs = paramGet(comp, 'bs');
+  var sf = paramGet(comp, 'sf');
+  var key = paramGet(comp, 'key');
+
+  if (bs && bs.t === 'bool' && bs.v === true) {
+    /* Section 2.1.3: wrap each instance as a Byte Sequence, serialize as a List. */
+    var list = instances.map(function (v) { return { t: 'bin', v: TE.encode(v), params: [] }; });
+    return {
+      value: sfSerializeList(list),
+      rule: 'binary-wrapped field, one Byte Sequence per instance (' + instances.length + ')',
+      section: '2.1.3'
+    };
+  }
+
+  var combined = instances.join(', ');
+
+  if (key) {
+    /* Section 2.1.2 */
+    if (key.t !== 'str') {
+      throw new BaseError('key-type', '2.1.2', 'the key parameter must carry a String value, got a ' + key.t, '');
+    }
+    var dict;
+    try { dict = sfvParse(combined, 'dictionary'); }
+    catch (e) {
+      throw new BaseError('sfv-parse', '2.5',
+        'field "' + name + '" is named with a key parameter but its value does not parse as a Dictionary Structured Field (' + e.message + ')',
+        'The component identifier is a Dictionary member identifier that references a field that is not present in the message, that is not a Dictionary Structured Field, or whose value is malformed.');
+    }
+    var found = null;
+    for (var i = 0; i < dict.length; i++) if (dict[i][0] === key.v) found = dict[i][1];
+    if (found === null) {
+      throw new BaseError('key-absent', '2.1.2',
+        'Dictionary member "' + key.v + '" does not occur in field "' + name + '"',
+        'If a Dictionary key is named as a covered component but it does not occur in the Dictionary, this MUST cause an error in the signature base generation.');
+    }
+    return { value: sfSerializeValue(found), rule: 'Dictionary member value and its parameters, without the key itself', section: '2.1.2' };
+  }
+
+  if (sf && sf.t === 'bool' && sf.v === true) {
+    /* Section 2.1.1 */
+    var declared = opts.sfTypes ? opts.sfTypes[componentIdentifier(comp)] : null;
+    if (!declared) {
+      throw new BaseError('sf-type-unknown', '2.1.1',
+        'field "' + name + '" carries the sf parameter but no Structured Field type has been declared for it. Declare List, Dictionary or Item. This tool raises here rather than guessing.',
+        "If the application does not know the type of the field or does not know how to serialize the type of the field, the use of this flag will produce an error. As a consequence, the signer can only reliably sign fields using this flag when the verifier's system knows the type as well.");
+    }
+    if (['list', 'dictionary', 'item'].indexOf(declared) < 0) {
+      throw new BaseError('sf-type-unsupported', '2.5',
+        'Structured Field type "' + declared + '" is not implemented. Implemented types: ' + SF_TYPES.join(', ') + ', each with parameters.',
+        'The component identifier indicates that a Structured Field serialization is used (via the sf parameter), but the field in question is known to not be a Structured Field or the type of Structured Field is not known to the implementation.');
+    }
+    var parsed;
+    try { parsed = sfvParse(combined, declared); }
+    catch (e) {
+      throw new BaseError('sfv-parse', '2.5',
+        'field "' + name + '" does not parse as the declared Structured Field type ' + declared + ' (' + e.message + ')',
+        'The component name identifies a field that is not present in the message or whose value is malformed.');
+    }
+    var out = declared === 'list' ? sfSerializeList(parsed)
+      : declared === 'dictionary' ? sfSerializeDictionary(parsed)
+        : sfSerializeValue(parsed);
+    return { value: out, rule: 'strict Structured Field reserialization as a ' + declared, section: '2.1.1' };
+  }
+
+  return {
+    value: combined,
+    rule: instances.length > 1
+      ? instances.length + ' field instances joined with a comma and a single space'
+      : (fromTrailers
+        ? 'trailer field value, whitespace stripped and folds collapsed'
+        : 'field value, whitespace stripped and folds collapsed'),
+    section: fromTrailers ? '2.1.4' : '2.1'
+  };
+}
+
+function deriveComponent(ctx, comp, opts) {
+  var name = comp.name;
+  if (!Object.prototype.hasOwnProperty.call(DERIVED, name)) {
+    throw new BaseError('derived-unknown', '2.5',
+      'derived component "' + name + '" is not a name this tool knows how to derive',
+      'The signer or verifier does not understand the derived component name.');
+  }
+  if (name === '@status') {
+    if (ctx.kind !== 'response') {
+      throw new BaseError('status-in-request', '2.2.9',
+        '"@status" was named against a request message',
+        'The @status component identifier MUST NOT be used in a request message.');
+    }
+    return { value: ctx.status, rule: 'three-digit status code, no reason phrase', section: '2.2.9' };
+  }
+  if (REQUEST_ONLY.indexOf(name) >= 0 && ctx.kind !== 'request') {
+    throw new BaseError('request-only', '2.2',
+      '"' + name + '" is derived from a request, but the context here is a response. Add the req parameter to source it from the originating request.',
+      'The signer or verifier does not understand the derived component name.');
+  }
+  var host = null;
+  for (var i = 0; i < ctx.fields.length; i++) if (ctx.fields[i].name === 'host') host = ctx.fields[i].value;
+  var parts = splitTarget(ctx.target);
+  /* When the request target is in absolute form it carries its own scheme, and
+     that scheme is part of the message. Taking the selector's value instead
+     produces a base whose "@scheme" line contradicts its own "@target-uri"
+     line, and makes the default-port test in normalizeAuthority compare against
+     the wrong port. The selector answers the question the message does not:
+     which scheme carried an origin-form, authority-form or asterisk-form
+     request. */
+  var schemeFromTarget = parts.form === 'absolute'
+    ? ctx.target.slice(0, ctx.target.indexOf('://')).toLowerCase() : null;
+  var scheme = schemeFromTarget || (opts.scheme || 'https').toLowerCase();
+
+  if (name === '@method') return { value: ctx.method, rule: 'request method verbatim, case sensitive', section: '2.2.1' };
+  if (name === '@scheme') {
+    return {
+      value: scheme,
+      rule: schemeFromTarget ? 'scheme lowercased, taken from the absolute-form request target' : 'scheme lowercased',
+      section: '2.2.4'
+    };
+  }
+  if (name === '@request-target') return { value: ctx.target, rule: 'request target in ' + parts.form + '-form, exactly as sent', section: '2.2.5' };
+
+  if (name === '@authority') {
+    var auth = (parts.form === 'absolute' || parts.form === 'authority') ? parts.authority : host;
+    if (!auth) {
+      throw new BaseError('authority-missing', '2.2.3',
+        'the request carries no Host header field and its target is not in absolute or authority form, so "@authority" cannot be derived',
+        'The component name identifies a field that is not present in the message or whose value is malformed.');
+    }
+    return { value: normalizeAuthority(auth, scheme), rule: 'authority with the hostname lowercased and the default port omitted', section: '2.2.3' };
+  }
+
+  if (parts.path === null) {
+    throw new BaseError('no-path', '2.2',
+      '"' + name + '" cannot be derived from a request target in ' + parts.form + '-form, which carries no path or query',
+      'The signer or verifier does not understand the derived component name.');
+  }
+
+  if (name === '@path') return { value: parts.path, rule: 'absolute path, percent-encoding preserved, query removed', section: '2.2.6' };
+  if (name === '@query') return { value: parts.query, rule: 'query including the leading question mark, percent-encoding preserved', section: '2.2.7' };
+
+  if (name === '@target-uri') {
+    if (parts.form === 'absolute') return { value: ctx.target, rule: 'absolute-form target used as the target URI', section: '2.2.2' };
+    var a = host ? normalizeAuthority(host, scheme) : null;
+    if (!a) {
+      throw new BaseError('authority-missing', '2.2.2',
+        'the request carries no Host header field, so "@target-uri" cannot be assembled',
+        'The component name identifies a field that is not present in the message or whose value is malformed.');
+    }
+    var q = parts.hasQuery ? parts.query : '';
+    return { value: scheme + '://' + a + parts.path + q, rule: 'target URI assembled from scheme, authority, path and query', section: '2.2.2' };
+  }
+
+  if (name === '@query-param') {
+    var np = paramGet(comp, 'name');
+    if (!np || np.t !== 'str') {
+      throw new BaseError('query-param-name', '2.2.8',
+        '"@query-param" requires a name parameter carrying a String value',
+        'The component identifier includes a parameter that is unknown or does not apply to the component identifier to which it is attached.');
+    }
+    var tuples = parseQueryTuples(parts.query);
+    var hits = tuples.filter(function (t) { return t.name === np.v; });
+    if (hits.length === 0) {
+      throw new BaseError('query-param-absent', '2.2.8',
+        'query parameter "' + np.v + '" does not occur in the query string',
+        'If a query parameter is named as a covered component but it does not occur in the query parameters, this MUST cause an error in the signature base generation.');
+    }
+    if (hits.length > 1) {
+      throw new BaseError('query-param-repeated', '2.2.8',
+        'query parameter "' + np.v + '" occurs ' + hits.length + ' times in the query string',
+        'If a parameter name occurs multiple times in a request, the named query parameter MUST NOT be included.');
+    }
+    return { value: hits[0].value, rule: 'form-decoded, then re-encoded with the urlencoded percent-encode set', section: '2.2.8' };
+  }
+
+  throw new BaseError('derived-unknown', '2.5', 'derived component "' + name + '" is not implemented', '');
+}
+
+/* opts: { message, request, sigInput:{label, components, sigParams}, scheme, sfTypes } */
+function buildSignatureBase(opts) {
+  var errors = [];
+  var lines = [];
+  var seen = Object.create(null);
+  var comps = opts.sigInput.components;
+  var target = opts.message;
+
+  comps.forEach(function (comp, index) {
+    var id;
+    try { id = componentIdentifier(comp); } catch (e) { id = '"' + comp.name + '"'; }
+    function push(err) { err.index = index; err.id = id; errors.push(err); }
+
+    try {
+      /* Section 2.5 step 2.1 */
+      var ek = equalityKey(comp);
+      if (seen[ek]) {
+        push(new BaseError('duplicate', '2.5',
+          'component identifier ' + id + ' has already been added to the signature base',
+          'If the component identifier (including its parameters) has already been added to the signature base, produce an error.'));
+        return;
+      }
+      seen[ek] = true;
+
+      /* Section 2.3 */
+      if (comp.name === '@signature-params') {
+        push(new BaseError('signature-params-listed', '2.3',
+          '"@signature-params" is enumerated inside the covered component list',
+          'the component identifier MUST NOT be enumerated within the set of covered components for any signature, including itself.'));
+        return;
+      }
+
+      /* Section 2.5 step 2.5, a parameter that is not understood, or that is
+         understood but does not apply to this component. The registry in
+         Section 6.5.2 defines sf, key, bs and tr against Sections 2.1.1 to
+         2.1.4, which are the HTTP field rules, and name against Section 2.2.8,
+         which is @query-param alone. req is defined in Section 2.4 and applies
+         to both classes. Accepting an inapplicable parameter and then ignoring
+         it produces a confident base where a conforming counterparty aborts. */
+      var derived = comp.name.charAt(0) === '@';
+      for (var p = 0; p < comp.params.length; p++) {
+        var pk = comp.params[p][0];
+        if (!KNOWN_COMPONENT_PARAMS[pk]) {
+          push(new BaseError('unknown-parameter', '2.5',
+            'component parameter ";' + pk + '" is not understood by this tool, so it raises rather than guessing',
+            'If the component identifier has a parameter that is not understood, produce an error.'));
+          return;
+        }
+        var applies = pk === 'req'
+          || (derived ? (pk === 'name' && comp.name === '@query-param')
+            : pk !== 'name');
+        if (!applies) {
+          push(new BaseError('param-not-applicable', '2.5',
+            derived
+              ? (pk === 'name'
+                ? 'the name parameter applies only to "@query-param", not to "' + comp.name + '"'
+                : 'the ' + pk + ' parameter serializes an HTTP field value and does not apply to the derived component "' + comp.name + '"')
+              : 'the name parameter applies only to "@query-param", not to the field "' + comp.name + '"',
+            'The component identifier includes a parameter that is unknown or does not apply to the component identifier to which it is attached.'));
+          return;
+        }
+      }
+
+      var bs = paramGet(comp, 'bs'), sf = paramGet(comp, 'sf'), req = paramGet(comp, 'req');
+      var bsOn = !!(bs && bs.t === 'bool' && bs.v === true);
+      var sfOn = !!(sf && sf.t === 'bool' && sf.v === true);
+      var reqOn = !!(req && req.t === 'bool' && req.v === true);
+
+      /* Section 2.5 step 2.5, mutually incompatible parameters */
+      if (bsOn && sfOn) {
+        push(new BaseError('bs-with-sf', '2.5',
+          'the bs and sf parameters are mutually incompatible on ' + id,
+          'If the component identifier has parameters that are mutually incompatible with one another, such as bs and sf, produce an error.'));
+        return;
+      }
+      if (bsOn && paramGet(comp, 'key')) {
+        push(new BaseError('bs-with-key', '2.1',
+          'the bs and key parameters are mutually incompatible on ' + id,
+          'The bs parameter, which requires the raw bytes of the field values from the message, is not compatible with the use of the sf or key parameters, which require the parsed data structures of the field values after combination.'));
+        return;
+      }
+
+      var ctx = target;
+      if (reqOn) {
+        if (target.kind === 'request') {
+          push(new BaseError('req-on-request', '2.5',
+            'the req parameter was used on ' + id + ' but the target message is a request',
+            'If the component identifier contains the req parameter and the target message is a request, produce an error.'));
+          return;
+        }
+        if (!opts.request) {
+          push(new BaseError('req-no-request', '2.4',
+            id + ' sources its value from the originating request, but no originating request has been supplied. Paste it into the originating request field.',
+            'the context for the component value is the related request message of the target response message.'));
+          return;
+        }
+        ctx = opts.request;
+      }
+      var role = reqOn ? 'originating request' : (ctx.kind === 'request' ? 'request' : 'response');
+      var view = {
+        kind: ctx.kind, status: ctx.status, method: ctx.method, target: ctx.target,
+        fields: ctx.fields, trailers: ctx.trailers,
+        trailersUnwalkable: !!ctx.trailersUnwalkable, role: role
+      };
+
+      var result = comp.name.charAt(0) === '@' ? deriveComponent(view, comp, opts) : canonicalizeField(view, comp, opts);
+
+      if (String(result.value).indexOf('\n') >= 0) {
+        push(new BaseError('newline-in-value', '2',
+          'the component value for ' + id + ' contains a newline character',
+          'Component values MUST NOT contain newline (\\n) characters.'));
+        return;
+      }
+      lines.push({ id: id, value: result.value, rule: result.rule, section: result.section });
+    } catch (e) {
+      if (e instanceof BaseError) push(e);
+      /* internal is a last-resort catch-all with no known reachable input, so
+         it carries no fixture and is not listed as an abort condition. It
+         exists so an unforeseen throw still suppresses the base rather than
+         escaping and leaving a stale one on screen. */
+      else push(new BaseError('internal', '2.5', String(e && e.message ? e.message : e), ''));
+    }
+  });
+
+  /* Section 2.5 step 3, the signature parameters line. */
+  var paramsValue = null;
+  try {
+    paramsValue = '(' + comps.map(componentIdentifier).join(' ') + ')' + sfSerializeParams(opts.sigInput.sigParams);
+  } catch (e) {
+    /* Also a catch-all with no known reachable input: every value that reaches
+       here came out of the parser, and the parser only produces types the
+       serializer handles. Not fixtured, and not listed as an abort condition. */
+    errors.push(new BaseError('sigparams-serialize', '2.3', 'the signature parameters could not be serialized: ' + e.message, ''));
+  }
+
+  if (errors.length) return { ok: false, errors: errors };
+
+  lines.push({
+    id: '"@signature-params"', value: paramsValue,
+    rule: 'covered components as an Inner List, followed by the signature parameters', section: '2.3'
+  });
+
+  var base = lines.map(function (l) { return l.id + ': ' + l.value; }).join('\n');
+
+  /* Section 2.5 step 4 */
+  for (var i = 0; i < base.length; i++) {
+    if (base.charCodeAt(i) > 0x7f) {
+      return {
+        ok: false,
+        errors: [new BaseError('non-ascii', '2.5',
+          'the finished signature base contains a non-ASCII character at offset ' + i + ' (' + JSON.stringify(base[i]) + '). Wrap the offending field with the bs parameter.',
+          'Produce an error if the output string contains any non-ASCII characters')]
+      };
+    }
+  }
+
+  return { ok: true, lines: lines, base: base, bytes: base.length };
+}
+
+/* Parse the pasted Signature-Input value. Accepts a full Dictionary of labels,
+   or a bare Inner List for a single unlabelled signature. */
+function parseSignatureInput(raw) {
+  var text = String(raw == null ? '' : raw).trim();
+  if (text === '') throw new SfvError('the Signature-Input value is empty', 0);
+  var members;
+  if (text.charAt(0) === '(') {
+    members = [['(unlabelled)', sfvParse(text, 'item')]];
+  } else {
+    members = sfvParse(text, 'dictionary');
+  }
+  return members.map(function (kv) {
+    var v = kv[1];
+    if (v.t !== 'ilist') {
+      throw new SfvError('signature label "' + kv[0] + '" must map to an Inner List of covered component identifiers, got a ' + v.t, 0);
+    }
+    var components = v.v.map(function (item) {
+      if (item.t !== 'str') {
+        throw new SfvError('every covered component identifier must be a String value, got a ' + item.t, 0);
+      }
+      return { name: item.v, params: item.params };
+    });
+    return { label: kv[0], components: components, sigParams: v.params };
+  });
+}
+/* ==== CORE END ==== */
+
+/* ==== FIXTURES START ==== */
+/* Every message and every expected string below is transcribed from RFC 9421,
+   with the RFC 8792 line wrapping (a backslash at end of line plus the leading
+   whitespace of the next line) removed. */
+
+var CD_REQ = 'sha-512=:WZDPaVn/7XgHaAy8pmojAkGWoRx2UFChF41A2svX+TaPm+AbwAgBWnrIiYllu7BNNyealdVLvRwEmTHWXvJwew==:';
+var CD_RES = 'sha-512=:mEWXIS7MaLRuGgxOBdODa3xqM1XdEvxoYhvlCFJ41QJgJc4GTsPp29l5oGX69wWdXymyU0rjJuahq4l5aGgfLQ==:';
+var CD_503 = 'sha-512=:0Y6iCBzGg5rZtoXS95Ijz03mslf6KAMCloESHObfwnHJDbkkWWQz6PhhU9kxsTbARtY2PTBOzq24uJFpHsMuAg==:';
+var SHARED_SECRET_B64 = 'uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasjlTMtDQ==';
+var SIG_B25 = 'sig-b25=:pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=:';
+
+function L(arr) { return arr.join('\n'); }
+
+var MSG = {
+  /* Appendix B.2, test-request */
+  testRequest: L([
+    'POST /foo?param=Value&Pet=dog HTTP/1.1',
+    'Host: example.com',
+    'Date: Tue, 20 Apr 2021 02:07:55 GMT',
+    'Content-Type: application/json',
+    'Content-Digest: ' + CD_REQ,
+    'Content-Length: 18',
+    '',
+    '{"hello": "world"}'
+  ]),
+  /* Appendix B.2, test-response */
+  testResponse: L([
+    'HTTP/1.1 200 OK',
+    'Date: Tue, 20 Apr 2021 02:07:56 GMT',
+    'Content-Type: application/json',
+    'Content-Digest: ' + CD_RES,
+    'Content-Length: 23',
+    '',
+    '{"message": "good dog"}'
+  ]),
+  /* Section 2.4, the request that triggered the signed response */
+  reqresRequest: L([
+    'POST /foo?param=Value&Pet=dog HTTP/1.1',
+    'Host: example.com',
+    'Date: Tue, 20 Apr 2021 02:07:55 GMT',
+    'Content-Digest: ' + CD_REQ,
+    'Content-Type: application/json',
+    'Content-Length: 18',
+    '',
+    '{"hello": "world"}'
+  ]),
+  reqresResponse: L([
+    'HTTP/1.1 503 Service Unavailable',
+    'Date: Tue, 20 Apr 2021 02:07:56 GMT',
+    'Content-Type: application/json',
+    'Content-Length: 62',
+    'Content-Digest: ' + CD_503,
+    '',
+    '{"busy": true, "message": "Your call is very important to us"}'
+  ]),
+  /* Section 2.1 example header fields. The RFC prints a header fragment, so a
+     start line is added here to make it a complete message. */
+  section21: L([
+    'POST /foo?param=Value&Pet=dog HTTP/1.1',
+    'Host: www.example.com',
+    'Date: Tue, 20 Apr 2021 02:07:56 GMT',
+    'X-OWS-Header:   Leading and trailing whitespace.',
+    'X-Obs-Fold-Header: Obsolete',
+    '    line folding.',
+    'Cache-Control: max-age=60',
+    'Cache-Control:    must-revalidate',
+    'Example-Dict:  a=1,    b=2;x=1;y=2,   c=(a   b   c)',
+    'X-Empty-Header: ',
+    ''
+  ]),
+  /* Section 2.1.2 example header field */
+  section212: L([
+    'POST /foo HTTP/1.1',
+    'Host: www.example.com',
+    'Example-Dict:  a=1, b=2;x=1;y=2, c=(a   b    c), d',
+    ''
+  ]),
+  /* Section 2.1.3, the same field sent two ways */
+  bsTwoInstances: L([
+    'POST /foo HTTP/1.1',
+    'Host: www.example.com',
+    'Example-Header: value, with, lots',
+    'Example-Header: of, commas',
+    ''
+  ]),
+  bsOneInstance: L([
+    'POST /foo HTTP/1.1',
+    'Host: www.example.com',
+    'Example-Header: value, with, lots, of, commas',
+    ''
+  ]),
+  /* Section 2.1.4, trailer fields in a chunked response */
+  trailers: L([
+    'HTTP/1.1 200 OK',
+    'Content-Type: text/plain',
+    'Transfer-Encoding: chunked',
+    'Trailer: Expires',
+    '',
+    '4', 'HTTP', '7', 'Message', 'a', 'Signatures', '0',
+    'Expires: Wed, 9 Nov 2022 07:28:00 GMT'
+  ]),
+  /* Section 2.2.8 */
+  queryParamEncoding: L([
+    'GET /parameters?var=this%20is%20a%20big%0Amultiline%20value&bar=with+plus+whitespace&fa%C3%A7ade%22%3A%20=something HTTP/1.1',
+    'Host: www.example.com',
+    'Date: Tue, 20 Apr 2021 02:07:56 GMT',
+    ''
+  ]),
+  queryParamNames: L([
+    'GET /path?param=value&foo=bar&baz=batman&qux= HTTP/1.1',
+    'Host: www.example.com',
+    ''
+  ]),
+  queryParamRepeated: L([
+    'GET /path?a=1&a=2 HTTP/1.1',
+    'Host: www.example.com',
+    ''
+  ]),
+  /* Sections 2.2.1 to 2.2.7 */
+  postPath: L(['POST /path?param=value HTTP/1.1', 'Host: www.example.com', '']),
+  getPath: L(['GET /path?param=value HTTP/1.1', 'Host: www.example.com', '']),
+  getEncodedQuery: L(['GET /path?param=value&foo=bar&baz=bat%2Dman HTTP/1.1', 'Host: www.example.com', '']),
+  postQueryString: L(['POST /path?queryString HTTP/1.1', 'Host: www.example.com', '']),
+  postNoQuery: L(['POST /path HTTP/1.1', 'Host: www.example.com', '']),
+  absoluteForm: L(['GET https://www.example.com/path?param=value HTTP/1.1', '']),
+  authorityForm: L(['CONNECT www.example.com:80 HTTP/1.1', 'Host: www.example.com', '']),
+  asteriskForm: L(['OPTIONS * HTTP/1.1', 'Host: www.example.com', '']),
+  statusResponse: L(['HTTP/1.1 200 OK', 'Date: Fri, 26 Mar 2010 00:05:00 GMT', '']),
+  nonAscii: L(['POST /foo HTTP/1.1', 'Host: www.example.com', 'X-Cafe: café', '']),
+  /* Messages built here rather than transcribed, to cover paths the RFC's own
+     printed examples never reach. Each one is named for the gate it exercises. */
+  absoluteFormHttp: L(['GET http://www.example.com:80/path?x=1 HTTP/1.1', 'Host: www.example.com', '']),
+  emptyQueryPresent: L(['GET /path? HTTP/1.1', 'Host: www.example.com', '']),
+  astralQuery: L(['GET /p?a=\u{1F600} HTTP/1.1', 'Host: www.example.com', '']),
+  noHost: L(['GET /path?param=value HTTP/1.1', 'Date: Tue, 20 Apr 2021 02:07:56 GMT', '']),
+  dictRepeatedKey: L(['POST /foo HTTP/1.1', 'Host: www.example.com', 'Example-Dict: a=1, b=2, a=3', '']),
+  shortBase64: L(['POST /foo HTTP/1.1', 'Host: www.example.com', 'Example-Bin: :Y:', '']),
+  trailersMultibyte: L([
+    'HTTP/1.1 200 OK',
+    'Transfer-Encoding: chunked',
+    'Trailer: Expires',
+    '',
+    '6', '你好', '0',
+    'Expires: Wed, 9 Nov 2022 07:28:00 GMT'
+  ]),
+  trailersUnwalkable: L([
+    'HTTP/1.1 200 OK',
+    'Transfer-Encoding: chunked',
+    'Trailer: Expires',
+    '',
+    'zz', 'not a chunked body at all'
+  ]),
+  /* Generated, not transcribed, so the cap is exercised without a huge literal. */
+  capOverflow: (function () {
+    var a = [];
+    for (var i = 0; i <= SFV_MEMBER_CAP; i++) a.push('k' + i + '=1');
+    return L(['POST /foo HTTP/1.1', 'Host: www.example.com', 'Example-Dict: ' + a.join(', '), '']);
+  })()
+};
+
+var B25_BASE = L([
+  '"date": Tue, 20 Apr 2021 02:07:55 GMT',
+  '"@authority": example.com',
+  '"content-type": application/json',
+  '"@signature-params": ("date" "@authority" "content-type");created=1618884473;keyid="test-shared-secret"'
+]);
+
+var B25 = {
+  message: MSG.testRequest,
+  sigInput: 'sig-b25=("date" "@authority" "content-type");created=1618884473;keyid="test-shared-secret"',
+  secret: SHARED_SECRET_B64,
+  sigValue: SIG_B25
+};
+
+var FIXTURES = [
+  /* ---- Appendix B.2 signature bases ---- */
+  {
+    name: 'B.2.1 minimal signature, empty covered component list', section: 'B.2.1',
+    example: 'Appendix B.2.1, minimal signature (empty covered components)',
+    message: MSG.testRequest,
+    sigInput: 'sig-b21=();created=1618884473;keyid="test-key-rsa-pss";nonce="b3k2pp5k7z-50gnwp.yemd"',
+    expect: '"@signature-params": ();created=1618884473;keyid="test-key-rsa-pss";nonce="b3k2pp5k7z-50gnwp.yemd"'
+  },
+  {
+    name: 'B.2.2 selective components with a named query parameter', section: 'B.2.2',
+    example: 'Appendix B.2.2, selective covered components',
+    message: MSG.testRequest,
+    sigInput: 'sig-b22=("@authority" "content-digest" "@query-param";name="Pet");created=1618884473;keyid="test-key-rsa-pss";tag="header-example"',
+    expect: L([
+      '"@authority": example.com',
+      '"content-digest": ' + CD_REQ,
+      '"@query-param";name="Pet": dog',
+      '"@signature-params": ("@authority" "content-digest" "@query-param";name="Pet");created=1618884473;keyid="test-key-rsa-pss";tag="header-example"'
+    ])
+  },
+  {
+    name: 'B.2.3 full coverage of the test request', section: 'B.2.3',
+    example: 'Appendix B.2.3, full coverage',
+    message: MSG.testRequest,
+    sigInput: 'sig-b23=("date" "@method" "@path" "@query" "@authority" "content-type" "content-digest" "content-length");created=1618884473;keyid="test-key-rsa-pss"',
+    expect: L([
+      '"date": Tue, 20 Apr 2021 02:07:55 GMT',
+      '"@method": POST',
+      '"@path": /foo',
+      '"@query": ?param=Value&Pet=dog',
+      '"@authority": example.com',
+      '"content-type": application/json',
+      '"content-digest": ' + CD_REQ,
+      '"content-length": 18',
+      '"@signature-params": ("date" "@method" "@path" "@query" "@authority" "content-type" "content-digest" "content-length");created=1618884473;keyid="test-key-rsa-pss"'
+    ])
+  },
+  {
+    name: 'B.2.4 signing a response, @status', section: 'B.2.4',
+    example: 'Appendix B.2.4, signing a response',
+    message: MSG.testResponse,
+    sigInput: 'sig-b24=("@status" "content-type" "content-digest" "content-length");created=1618884473;keyid="test-key-ecc-p256"',
+    expect: L([
+      '"@status": 200',
+      '"content-type": application/json',
+      '"content-digest": ' + CD_RES,
+      '"content-length": 23',
+      '"@signature-params": ("@status" "content-type" "content-digest" "content-length");created=1618884473;keyid="test-key-ecc-p256"'
+    ])
+  },
+  {
+    name: 'B.2.5 signing a request with hmac-sha256', section: 'B.2.5',
+    example: 'Appendix B.2.5, hmac-sha256 (loaded by default)',
+    message: MSG.testRequest, sigInput: B25.sigInput, expect: B25_BASE
+  },
+  {
+    name: 'B.2.6 signing a request with ed25519', section: 'B.2.6',
+    example: 'Appendix B.2.6, ed25519 covered components',
+    message: MSG.testRequest,
+    sigInput: 'sig-b26=("date" "@method" "@path" "@authority" "content-type" "content-length");created=1618884473;keyid="test-key-ed25519"',
+    expect: L([
+      '"date": Tue, 20 Apr 2021 02:07:55 GMT',
+      '"@method": POST',
+      '"@path": /foo',
+      '"@authority": example.com',
+      '"content-type": application/json',
+      '"content-length": 18',
+      '"@signature-params": ("date" "@method" "@path" "@authority" "content-type" "content-length");created=1618884473;keyid="test-key-ed25519"'
+    ])
+  },
+  {
+    name: 'Section 2.5 Figure 1, non-normative example base', section: '2.5',
+    example: 'Section 2.5 Figure 1, non-normative example',
+    message: MSG.testRequest,
+    sigInput: 'sig1=("@method" "@authority" "@path" "content-digest" "content-length" "content-type");created=1618884473;keyid="test-key-rsa-pss"',
+    expect: L([
+      '"@method": POST',
+      '"@authority": example.com',
+      '"@path": /foo',
+      '"content-digest": ' + CD_REQ,
+      '"content-length": 18',
+      '"content-type": application/json',
+      '"@signature-params": ("@method" "@authority" "@path" "content-digest" "content-length" "content-type");created=1618884473;keyid="test-key-rsa-pss"'
+    ])
+  },
+  {
+    name: 'Section 2.4 response signature covering request components with ;req', section: '2.4',
+    example: 'Section 2.4, response covering request components with ;req',
+    message: MSG.reqresResponse, request: MSG.reqresRequest,
+    sigInput: 'reqres=("@status" "content-digest" "content-type" "@authority";req "@method";req "@path";req "content-digest";req);created=1618884479;keyid="test-key-ecc-p256"',
+    expect: L([
+      '"@status": 503',
+      '"content-digest": ' + CD_503,
+      '"content-type": application/json',
+      '"@authority";req: example.com',
+      '"@method";req: POST',
+      '"@path";req: /foo',
+      '"content-digest";req: ' + CD_REQ,
+      '"@signature-params": ("@status" "content-digest" "content-type" "@authority";req "@method";req "@path";req "content-digest";req);created=1618884479;keyid="test-key-ecc-p256"'
+    ])
+  },
+
+  /* ---- Section 2.1 field canonicalisation ---- */
+  { name: 'Section 2.1 host', section: '2.1', message: MSG.section21, sigInput: 't=("host")', expectLines: ['"host": www.example.com'] },
+  { name: 'Section 2.1 date', section: '2.1', message: MSG.section21, sigInput: 't=("date")', expectLines: ['"date": Tue, 20 Apr 2021 02:07:56 GMT'] },
+  { name: 'Section 2.1 leading and trailing whitespace stripped', section: '2.1', message: MSG.section21, sigInput: 't=("x-ows-header")', expectLines: ['"x-ows-header": Leading and trailing whitespace.'] },
+  { name: 'Section 2.1 obsolete line folding collapsed to one space', section: '2.1', message: MSG.section21, sigInput: 't=("x-obs-fold-header")', expectLines: ['"x-obs-fold-header": Obsolete line folding.'] },
+  { name: 'Section 2.1 repeated field joined with comma space', section: '2.1', message: MSG.section21, sigInput: 't=("cache-control")', expectLines: ['"cache-control": max-age=60, must-revalidate'] },
+  { name: 'Section 2.1 dictionary field left untouched without ;sf', section: '2.1', message: MSG.section21, sigInput: 't=("example-dict")', expectLines: ['"example-dict": a=1,    b=2;x=1;y=2,   c=(a   b   c)'] },
+  { name: 'Section 2.1 empty field value, line ends in a space', section: '2.1', message: MSG.section21, sigInput: 't=("x-empty-header")', expectLines: ['"x-empty-header": '] },
+
+  /* ---- Section 2.1.1 strict serialization ---- */
+  {
+    name: 'Section 2.1.1 ;sf reserializes a Dictionary', section: '2.1.1',
+    message: MSG.section21, sigInput: 't=("example-dict";sf)',
+    sfTypes: { '"example-dict";sf': 'dictionary' },
+    expectLines: ['"example-dict";sf: a=1, b=2;x=1;y=2, c=(a b c)']
+  },
+
+  /* ---- Section 2.1.2 dictionary members ---- */
+  { name: 'Section 2.1.2 ;key="a" Integer member', section: '2.1.2', message: MSG.section212, sigInput: 't=("example-dict";key="a")', expectLines: ['"example-dict";key="a": 1'] },
+  { name: 'Section 2.1.2 ;key="d" bare member serializes as ?1', section: '2.1.2', message: MSG.section212, sigInput: 't=("example-dict";key="d")', expectLines: ['"example-dict";key="d": ?1'] },
+  { name: 'Section 2.1.2 ;key="b" member keeps its parameters', section: '2.1.2', message: MSG.section212, sigInput: 't=("example-dict";key="b")', expectLines: ['"example-dict";key="b": 2;x=1;y=2'] },
+  { name: 'Section 2.1.2 ;key="c" Inner List reserialized with single spaces', section: '2.1.2', message: MSG.section212, sigInput: 't=("example-dict";key="c")', expectLines: ['"example-dict";key="c": (a b c)'] },
+
+  /* ---- Section 2.1.3 binary wrapping ---- */
+  { name: 'Section 2.1.3 two instances collapse identically without ;bs', section: '2.1.3', message: MSG.bsTwoInstances, sigInput: 't=("example-header")', expectLines: ['"example-header": value, with, lots, of, commas'] },
+  { name: 'Section 2.1.3 one merged instance collapses to the same line', section: '2.1.3', message: MSG.bsOneInstance, sigInput: 't=("example-header")', expectLines: ['"example-header": value, with, lots, of, commas'] },
+  { name: 'Section 2.1.3 ;bs on two instances', section: '2.1.3', message: MSG.bsTwoInstances, sigInput: 't=("example-header";bs)', expectLines: ['"example-header";bs: :dmFsdWUsIHdpdGgsIGxvdHM=:, :b2YsIGNvbW1hcw==:'] },
+  { name: 'Section 2.1.3 ;bs on one merged instance differs', section: '2.1.3', message: MSG.bsOneInstance, sigInput: 't=("example-header";bs)', expectLines: ['"example-header";bs: :dmFsdWUsIHdpdGgsIGxvdHMsIG9mLCBjb21tYXM=:'] },
+
+  /* ---- Section 2.1.4 trailers ---- */
+  {
+    name: 'Section 2.1.4 trailer field via ;tr, kept apart from headers', section: '2.1.4',
+    example: 'Section 2.1.4, a trailer field signed with ;tr',
+    message: MSG.trailers, sigInput: 'sig1=("@status" "trailer" "expires";tr);created=1618884473',
+    expectLines: ['"@status": 200', '"trailer": Expires', '"expires";tr: Wed, 9 Nov 2022 07:28:00 GMT']
+  },
+
+  /* ---- Section 2.2 derived components ---- */
+  { name: 'Section 2.2.1 @method', section: '2.2.1', message: MSG.postPath, sigInput: 't=("@method")', expectLines: ['"@method": POST'] },
+  { name: 'Section 2.2.2 @target-uri over https', section: '2.2.2', message: MSG.postPath, scheme: 'https', sigInput: 't=("@target-uri")', expectLines: ['"@target-uri": https://www.example.com/path?param=value'] },
+  { name: 'Section 2.2.3 @authority', section: '2.2.3', message: MSG.postPath, sigInput: 't=("@authority")', expectLines: ['"@authority": www.example.com'] },
+  { name: 'Section 2.2.4 @scheme over plain http', section: '2.2.4', message: MSG.postPath, scheme: 'http', sigInput: 't=("@scheme")', expectLines: ['"@scheme": http'] },
+  { name: 'Section 2.2.5 @request-target origin-form', section: '2.2.5', message: MSG.postPath, sigInput: 't=("@request-target")', expectLines: ['"@request-target": /path?param=value'] },
+  { name: 'Section 2.2.5 @request-target absolute-form', section: '2.2.5', message: MSG.absoluteForm, sigInput: 't=("@request-target")', expectLines: ['"@request-target": https://www.example.com/path?param=value'] },
+  { name: 'Section 2.2.5 @request-target authority-form (CONNECT)', section: '2.2.5', message: MSG.authorityForm, sigInput: 't=("@request-target")', expectLines: ['"@request-target": www.example.com:80'] },
+  { name: 'Section 2.2.5 @request-target asterisk-form (OPTIONS)', section: '2.2.5', message: MSG.asteriskForm, sigInput: 't=("@request-target")', expectLines: ['"@request-target": *'] },
+  { name: 'Section 2.2.6 @path', section: '2.2.6', message: MSG.getPath, sigInput: 't=("@path")', expectLines: ['"@path": /path'] },
+  { name: 'Section 2.2.7 @query keeps percent-encoding undecoded', section: '2.2.7', message: MSG.getEncodedQuery, sigInput: 't=("@query")', expectLines: ['"@query": ?param=value&foo=bar&baz=bat%2Dman'] },
+  { name: 'Section 2.2.7 @query with no equals sign', section: '2.2.7', message: MSG.postQueryString, sigInput: 't=("@query")', expectLines: ['"@query": ?queryString'] },
+  { name: 'Section 2.2.7 @query absent becomes a bare question mark', section: '2.2.7', message: MSG.postNoQuery, sigInput: 't=("@query")', expectLines: ['"@query": ?'] },
+  { name: 'Section 2.2.9 @status', section: '2.2.9', message: MSG.statusResponse, sigInput: 't=("@status")', expectLines: ['"@status": 200'] },
+
+  /* ---- Section 2.2.8 the query parameter encoder ---- */
+  {
+    name: 'Section 2.2.8 @query-param name="var", newline stays percent-encoded', section: '2.2.8',
+    example: 'Section 2.2.8, the query parameter encoding request',
+    message: MSG.queryParamEncoding, sigInput: 't=("@query-param";name="var")',
+    expectLines: ['"@query-param";name="var": this%20is%20a%20big%0Amultiline%20value'], worked: true
+  },
+  {
+    name: 'Section 2.2.8 @query-param name="bar", plus becomes %20 not a plus', section: '2.2.8',
+    message: MSG.queryParamEncoding, sigInput: 't=("@query-param";name="bar")',
+    expectLines: ['"@query-param";name="bar": with%20plus%20whitespace'], worked: true
+  },
+  {
+    name: 'Section 2.2.8 @query-param with a percent-encoded name round-trips', section: '2.2.8',
+    message: MSG.queryParamEncoding, sigInput: 't=("@query-param";name="fa%C3%A7ade%22%3A%20")',
+    expectLines: ['"@query-param";name="fa%C3%A7ade%22%3A%20": something'], worked: true
+  },
+  {
+    name: 'Section 2.2.8 baz, qux and param, empty value ends the line in a space', section: '2.2.8',
+    message: MSG.queryParamNames,
+    sigInput: 't=("@query-param";name="baz" "@query-param";name="qux" "@query-param";name="param")',
+    expectLines: [
+      '"@query-param";name="baz": batman',
+      '"@query-param";name="qux": ',
+      '"@query-param";name="param": value'
+    ]
+  },
+
+  /* ---- abort conditions, each must produce NO base ---- */
+  { name: 'ABORT duplicate component identifier', section: '2.5', message: MSG.section212, sigInput: 't=("example-dict";key="a" "example-dict";key="a")', expectErrors: ['duplicate'] },
+  { name: 'ABORT @signature-params inside the covered list', section: '2.3', message: MSG.testRequest, sigInput: 't=("@signature-params")', expectErrors: ['signature-params-listed'] },
+  { name: 'ABORT @status used in a request', section: '2.2.9', message: MSG.testRequest, sigInput: 't=("@status")', expectErrors: ['status-in-request'] },
+  { name: 'ABORT ;req used on a request', section: '2.5', message: MSG.testRequest, sigInput: 't=("date";req)', expectErrors: ['req-on-request'] },
+  { name: 'ABORT ;bs combined with ;sf', section: '2.5', message: MSG.section21, sigInput: 't=("example-dict";bs;sf)', expectErrors: ['bs-with-sf'] },
+  { name: 'ABORT ;bs combined with ;key', section: '2.1', message: MSG.section212, sigInput: 't=("example-dict";bs;key="a")', expectErrors: ['bs-with-key'] },
+  { name: 'ABORT unrecognised component parameter', section: '2.5', message: MSG.testRequest, sigInput: 't=("date";novel)', expectErrors: ['unknown-parameter'] },
+  { name: 'ABORT named field absent from the message', section: '2.5', message: MSG.testRequest, sigInput: 't=("x-not-here")', expectErrors: ['field-absent'] },
+  { name: 'ABORT ;key names a Dictionary member that is not there', section: '2.1.2', message: MSG.section212, sigInput: 't=("example-dict";key="z")', expectErrors: ['key-absent'] },
+  { name: 'ABORT @query-param names a parameter that is not in the query', section: '2.2.8', message: MSG.testRequest, sigInput: 't=("@query-param";name="nope")', expectErrors: ['query-param-absent'] },
+  { name: 'ABORT @query-param names a parameter that occurs twice', section: '2.2.8', message: MSG.queryParamRepeated, sigInput: 't=("@query-param";name="a")', expectErrors: ['query-param-repeated'] },
+  { name: 'ABORT ;sf with no declared Structured Field type', section: '2.1.1', message: MSG.section21, sigInput: 't=("example-dict";sf)', expectErrors: ['sf-type-unknown'] },
+  { name: 'ABORT ;sf with an unimplemented Structured Field type', section: '2.5', message: MSG.section21, sigInput: 't=("example-dict";sf)', sfTypes: { '"example-dict";sf': 'sequence' }, expectErrors: ['sf-type-unsupported'] },
+  { name: 'ABORT non-ASCII character in the finished base', section: '2.5', message: MSG.nonAscii, sigInput: 't=("x-cafe")', expectErrors: ['non-ascii'] },
+  { name: 'ABORT ;req on a response with no originating request supplied', section: '2.4', message: MSG.reqresResponse, sigInput: 't=("@method";req)', expectErrors: ['req-no-request'] },
+  { name: 'ABORT request-only derived component on a response', section: '2.2', message: MSG.testResponse, sigInput: 't=("@method")', expectErrors: ['request-only'] },
+  { name: 'ABORT reports every error, in covered component order', section: '2.5', message: MSG.testRequest, sigInput: 't=("@status" "x-not-here")', expectErrors: ['status-in-request', 'field-absent'] },
+
+  /* ---- abort conditions that no RFC example reaches, one per gate ---- */
+  { name: 'ABORT ;sf on a derived component', section: '2.5', message: MSG.testRequest, sigInput: 't=("@method";sf)', expectErrors: ['param-not-applicable'] },
+  { name: 'ABORT ;key on a derived component', section: '2.5', message: MSG.testRequest, sigInput: 't=("@method";key="a")', expectErrors: ['param-not-applicable'] },
+  { name: 'ABORT ;bs on a derived component', section: '2.5', message: MSG.testRequest, sigInput: 't=("@method";bs)', expectErrors: ['param-not-applicable'] },
+  { name: 'ABORT ;tr on a derived component', section: '2.5', message: MSG.testRequest, sigInput: 't=("@method";tr)', expectErrors: ['param-not-applicable'] },
+  { name: 'ABORT ;name on an ordinary field', section: '2.5', message: MSG.testRequest, sigInput: 't=("date";name="bogus")', expectErrors: ['param-not-applicable'] },
+  { name: 'ABORT ;name on a derived component other than @query-param', section: '2.5', message: MSG.testRequest, sigInput: 't=("@path";name="bogus")', expectErrors: ['param-not-applicable'] },
+  { name: 'ABORT @authority with no Host field and an origin-form target', section: '2.2.3', message: MSG.noHost, sigInput: 't=("@authority")', expectErrors: ['authority-missing'] },
+  { name: 'ABORT @target-uri with no Host field and an origin-form target', section: '2.2.2', message: MSG.noHost, sigInput: 't=("@target-uri")', expectErrors: ['authority-missing'] },
+  { name: 'ABORT @path against an authority-form target', section: '2.2', message: MSG.authorityForm, sigInput: 't=("@path")', expectErrors: ['no-path'] },
+  { name: 'ABORT @query against an asterisk-form target', section: '2.2', message: MSG.asteriskForm, sigInput: 't=("@query")', expectErrors: ['no-path'] },
+  { name: 'ABORT a derived component name this tool does not know', section: '2.5', message: MSG.testRequest, sigInput: 't=("@not-a-component")', expectErrors: ['derived-unknown'] },
+  { name: 'ABORT ;key carrying something other than a String', section: '2.1.2', message: MSG.section212, sigInput: 't=("example-dict";key=1)', expectErrors: ['key-type'] },
+  { name: 'ABORT @query-param with no name parameter', section: '2.2.8', message: MSG.testRequest, sigInput: 't=("@query-param")', expectErrors: ['query-param-name'] },
+  { name: 'ABORT @query-param whose name is not a String', section: '2.2.8', message: MSG.testRequest, sigInput: 't=("@query-param";name=1)', expectErrors: ['query-param-name'] },
+  { name: 'ABORT ;sf on a value that does not parse as the declared type', section: '2.5', message: MSG.section21, sigInput: 't=("x-ows-header";sf)', sfTypes: { '"x-ows-header";sf': 'dictionary' }, expectErrors: ['sfv-parse'] },
+  { name: 'ABORT a Byte Sequence whose base64 leaves a group of one', section: '2.5', message: MSG.shortBase64, sigInput: 't=("example-bin";sf)', sfTypes: { '"example-bin";sf': 'item' }, expectErrors: ['sfv-parse'] },
+  { name: 'ABORT a chunked body that cannot be walked to its trailers', section: '2.1.4', message: MSG.trailersUnwalkable, sigInput: 't=("expires";tr)', expectErrors: ['chunked-body-unwalkable'] },
+  { name: 'ABORT a Dictionary field carrying more members than the cap', section: '2.5', message: MSG.capOverflow, sigInput: 't=("example-dict";sf)', sfTypes: { '"example-dict";sf': 'dictionary' }, expectErrors: ['sfv-parse'] },
+
+  /* ---- paths the RFC prints no vector for, computed from the rules ---- */
+  {
+    name: 'absolute-form target supplies its own scheme and default port', section: '2.2.2, 2.2.3, 2.2.4',
+    message: MSG.absoluteFormHttp, sigInput: 't=("@scheme" "@authority" "@target-uri" "@request-target")',
+    expectLines: [
+      '"@scheme": http',
+      '"@authority": www.example.com',
+      '"@target-uri": http://www.example.com:80/path?x=1',
+      '"@request-target": http://www.example.com:80/path?x=1'
+    ]
+  },
+  {
+    name: 'a present but empty query survives into @target-uri', section: '2.2.2, 2.2.7',
+    message: MSG.emptyQueryPresent, sigInput: 't=("@target-uri" "@query" "@path" "@request-target")',
+    expectLines: [
+      '"@target-uri": https://www.example.com/path?',
+      '"@query": ?',
+      '"@path": /path',
+      '"@request-target": /path?'
+    ]
+  },
+  {
+    name: '@query-param encodes a character outside the Basic Multilingual Plane', section: '2.2.8',
+    message: MSG.astralQuery, sigInput: 't=("@query-param";name="a")',
+    expectLines: ['"@query-param";name="a": %F0%9F%98%80']
+  },
+  {
+    name: 'a repeated Dictionary key overwrites in place and keeps its position', section: '2.1.1',
+    message: MSG.dictRepeatedKey, sigInput: 't=("example-dict";sf)', sfTypes: { '"example-dict";sf': 'dictionary' },
+    expectLines: ['"example-dict";sf: a=3, b=2']
+  },
+  {
+    name: 'a trailer after a multi-byte chunk is still found', section: '2.1.4',
+    message: MSG.trailersMultibyte, sigInput: 't=("expires";tr)',
+    expectLines: ['"expires";tr: Wed, 9 Nov 2022 07:28:00 GMT']
+  },
+
+  /* ---- input that never reaches the algorithm ---- */
+  { name: 'REFUSE a message with no recognisable start line', section: 'parser', messageError: 'this is not an http message\nat all\n' },
+  { name: 'REFUSE a Signature-Input with an unterminated Inner List', section: 'parser', sigInputError: 'sig1=("date"' },
+  { name: 'REFUSE a Signature-Input with an unterminated quoted String', section: 'parser', sigInputError: 'sig1=("date);created=1' },
+
+  /* ---- computed properties ---- */
+  { name: 'the newline guard trips on a component value carrying a newline', section: '2', unit: 'newlineguard', expectValue: 'newline-in-value' },
+  { name: 'B.2.5 base is exactly 200 bytes', section: 'B.2.5', unit: 'b25bytes', expectValue: '200' },
+  { name: 'urlencoded keep set is exactly 66 characters', section: '2.2.8', unit: 'keepcount', expectValue: '66' },
+  { name: 'identifier equality ignores parameter order', section: '2', unit: 'paramorder', expectValue: 'equal' },
+  { name: 'HMAC-SHA-256 over the B.2.5 base matches the printed Signature', section: 'B.2.5', hmac: 'b25', expectValue: 'pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=' },
+  { name: 'CONTROL adding one trailing newline breaks the MAC', section: 'B.2.5', hmac: 'b25nl', expectDiffersFrom: 'pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=' },
+
+  /* ---- positive control: written to fail, so a suite that stops running is detectable ---- */
+  {
+    name: 'POSITIVE CONTROL, this row MUST report FAIL', section: 'control', control: true,
+    message: MSG.testRequest, sigInput: B25.sigInput,
+    expect: B25_BASE.replace('example.com', 'example.invalid')
+  }
+];
+/* ==== FIXTURES END ==== */
+
+/* ==== SUITE START ==== */
+function firstDiff(a, b) {
+  var n = Math.min(a.length, b.length);
+  for (var i = 0; i < n; i++) if (a[i] !== b[i]) return i;
+  return a.length === b.length ? -1 : n;
+}
+
+function hmacAvailable() {
+  return typeof crypto !== 'undefined' && crypto && crypto.subtle && typeof crypto.subtle.importKey === 'function';
+}
+
+function hmacSha256Base64(secretB64, text) {
+  var keyBytes = base64ToBytes(secretB64);
+  return crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    .then(function (k) { return crypto.subtle.sign('HMAC', k, TE.encode(text)); })
+    .then(function (sig) { return bytesToBase64(new Uint8Array(sig)); });
+}
+
+function buildFromFixture(fx) {
+  var msg = parseHttpMessage(fx.message);
+  var req = fx.request ? parseHttpMessage(fx.request) : null;
+  var sigs = parseSignatureInput(fx.sigInput);
+  return buildSignatureBase({
+    message: msg, request: req, sigInput: sigs[0],
+    scheme: fx.scheme || 'https', sfTypes: fx.sfTypes || {}
+  });
+}
+
+function runOneSync(fx) {
+  if (fx.messageError) {
+    try { parseHttpMessage(fx.messageError); }
+    catch (e) { return { got: 'refused: ' + e.name, expected: 'refused: MessageError', pass: e.name === 'MessageError' }; }
+    return { got: 'accepted', expected: 'refused: MessageError', pass: false };
+  }
+  if (fx.sigInputError) {
+    try { parseSignatureInput(fx.sigInputError); }
+    catch (e) { return { got: 'refused: ' + e.name, expected: 'refused: SfvError', pass: e.name === 'SfvError' }; }
+    return { got: 'accepted', expected: 'refused: SfvError', pass: false };
+  }
+  if (fx.unit === 'b25bytes') {
+    var r = buildFromFixture({ message: MSG.testRequest, sigInput: B25.sigInput });
+    var got = r.ok ? String(r.bytes) : 'build failed';
+    return { got: got, expected: fx.expectValue, pass: got === fx.expectValue };
+  }
+  if (fx.unit === 'newlineguard') {
+    /* No pasted message can carry a newline into a component value: field
+       values are split on newlines before they are read, the request target is
+       a run of non-whitespace, Structured Field Strings reject every code point
+       below 0x20, and @query-param output is percent-encoded. So the guard is
+       driven here against a message object built by hand, which is the only way
+       to prove the check fires rather than assuming it. */
+    var forged = {
+      kind: 'request', method: 'POST', target: '/foo',
+      fields: [{ name: 'x-forged', rawName: 'X-Forged', value: 'one\ntwo' }],
+      trailers: [], trailersUnwalkable: false
+    };
+    var fr = buildSignatureBase({
+      message: forged, request: null,
+      sigInput: parseSignatureInput('t=("x-forged")')[0], scheme: 'https', sfTypes: {}
+    });
+    var fgot = fr.ok ? 'a base was produced (must not be)' : fr.errors.map(function (x) { return x.code; }).join(', ');
+    return { got: fgot, expected: fx.expectValue, pass: fgot === fx.expectValue };
+  }
+  if (fx.unit === 'keepcount') {
+    return { got: String(QP_KEEP_COUNT), expected: fx.expectValue, pass: String(QP_KEEP_COUNT) === fx.expectValue };
+  }
+  if (fx.unit === 'paramorder') {
+    var a = parseSignatureInput('t=("foo";req;tr)')[0].components[0];
+    var b = parseSignatureInput('t=("foo";tr;req)')[0].components[0];
+    var same = equalityKey(a) === equalityKey(b);
+    return { got: same ? 'equal' : 'different', expected: 'equal', pass: same };
+  }
+
+  var res;
+  try { res = buildFromFixture(fx); }
+  catch (e) { return { got: 'threw ' + e.name + ': ' + e.message, expected: fx.expectErrors ? fx.expectErrors.join(', ') : 'a signature base', pass: false }; }
+
+  if (fx.expectErrors) {
+    var codes = res.ok ? [] : res.errors.map(function (x) { return x.code; });
+    var gotStr = res.ok ? 'a base was produced (must not be)' : codes.join(', ');
+    return { got: gotStr, expected: fx.expectErrors.join(', '), pass: !res.ok && codes.join(',') === fx.expectErrors.join(',') };
+  }
+
+  if (!res.ok) {
+    return { got: 'aborted: ' + res.errors.map(function (x) { return x.code; }).join(', '), expected: fx.expect || (fx.expectLines || []).join('\n'), pass: false };
+  }
+  var expected, gotText;
+  if (fx.expectLines) {
+    expected = fx.expectLines.join('\n');
+    gotText = res.base.split('\n').slice(0, -1).join('\n');
+  } else {
+    expected = fx.expect;
+    gotText = res.base;
+  }
+  return { got: gotText, expected: expected, pass: gotText === expected };
+}
+
+function runVectors() {
+  var results = FIXTURES.map(function (fx) {
+    var out;
+    if (fx.hmac) {
+      out = { got: null, expected: fx.expectValue || ('anything but ' + fx.expectDiffersFrom), pass: null, pending: true };
+    } else {
+      try { out = runOneSync(fx); }
+      catch (e) { out = { got: 'harness threw ' + e.message, expected: '(no throw)', pass: false }; }
+    }
+    out.fx = fx;
+    return out;
+  });
+
+  var jobs = results.filter(function (r) { return r.pending; }).map(function (r) {
+    if (!hmacAvailable()) {
+      r.got = 'crypto.subtle unavailable'; r.pass = false; r.skipped = true;
+      return Promise.resolve();
+    }
+    var built = buildFromFixture({ message: MSG.testRequest, sigInput: B25.sigInput });
+    if (!built.ok) { r.got = 'base build failed'; r.pass = false; return Promise.resolve(); }
+    var text = r.fx.hmac === 'b25nl' ? built.base + '\n' : built.base;
+    return hmacSha256Base64(SHARED_SECRET_B64, text).then(function (mac) {
+      r.got = mac;
+      r.pass = r.fx.expectDiffersFrom ? (mac !== r.fx.expectDiffersFrom) : (mac === r.fx.expectValue);
+    }, function (e) { r.got = 'crypto error: ' + e.message; r.pass = false; });
+  });
+
+  return Promise.all(jobs).then(function () {
+    results.forEach(function (r) { delete r.pending; });
+    return results;
+  });
+}
+/* ==== SUITE END ==== */
+
+/* ==== UI START ==== */
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var el = {
+    msg: $('msg'), siginput: $('siginput'), reqmsg: $('reqmsg'), label: $('label'),
+    scheme: $('scheme'), sfbox: $('sfbox'), result: $('result'), example: $('example'),
+    reset: $('reset'), secret: $('secret'), sigval: $('sigval'), hmac: $('hmac'),
+    runtests: $('runtests'), testsummary: $('testsummary'), testtable: $('testtable'),
+    showall: $('showall'), qptable: $('qptable'), sftypes: $('sftypes'), keepcount: $('keepcount')
+  };
+
+  function mk(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+  var sfTypeChoices = {};
+  var lastGood = null;
+
+  /* ---- static sections built from the shipped constants ---- */
+  el.keepcount.textContent = 'the ' + QP_KEEP_COUNT + ' characters [A-Za-z0-9] plus * - . _';
+  SF_TYPES.forEach(function (t) {
+    var li = mk('li');
+    li.appendChild(mk('strong', null, t));
+    li.appendChild(document.createTextNode(', with parameters'));
+    el.sftypes.appendChild(li);
+  });
+  (function () {
+    var body = el.qptable.querySelector('tbody');
+    var sent = [
+      'var=this%20is%20a%20big%0Amultiline%20value',
+      'bar=with+plus+whitespace',
+      'fa%C3%A7ade%22%3A%20=something'
+    ];
+    FIXTURES.filter(function (f) { return f.worked; }).forEach(function (fx, i) {
+      var tr = mk('tr');
+      var a = mk('td'); a.appendChild(mk('code', null, sent[i])); tr.appendChild(a);
+      var b = mk('td'); b.appendChild(mk('code', null, fx.expectLines[0])); tr.appendChild(b);
+      body.appendChild(tr);
+    });
+  })();
+
+  /* ---- example loader, driven by the same fixtures the self test runs ---- */
+  FIXTURES.forEach(function (fx, i) {
+    if (!fx.example) return;
+    var opt = mk('option', null, fx.example);
+    opt.value = String(i);
+    el.example.appendChild(opt);
+  });
+  var bsOpt = mk('option', null, 'Section 2.1.3, the ;bs pair (two instances)');
+  bsOpt.value = 'bs2'; el.example.appendChild(bsOpt);
+  var bsOpt1 = mk('option', null, 'Section 2.1.3, the ;bs pair (one merged instance)');
+  bsOpt1.value = 'bs1'; el.example.appendChild(bsOpt1);
+
+  function loadFixture(fx) {
+    el.msg.value = fx.message;
+    el.siginput.value = fx.sigInput;
+    el.reqmsg.value = fx.request || '';
+    el.scheme.value = fx.scheme || 'https';
+    sfTypeChoices = Object.assign({}, fx.sfTypes || {});
+    var isB25 = fx.sigInput === B25.sigInput && fx.message === MSG.testRequest;
+    el.secret.value = isB25 ? B25.secret : '';
+    el.sigval.value = isB25 ? B25.sigValue : '';
+    render();
+  }
+
+  el.example.addEventListener('change', function () {
+    var v = el.example.value;
+    if (v === 'bs2') return loadFixture({ message: MSG.bsTwoInstances, sigInput: 'sig1=("example-header";bs);created=1618884473;keyid="test-shared-secret"' });
+    if (v === 'bs1') return loadFixture({ message: MSG.bsOneInstance, sigInput: 'sig1=("example-header";bs);created=1618884473;keyid="test-shared-secret"' });
+    loadFixture(FIXTURES[Number(v)]);
+  });
+  el.reset.addEventListener('click', function () {
+    el.example.value = String(FIXTURES.findIndex(function (f) { return f.hmac === undefined && f.sigInput === B25.sigInput && f.expect; }));
+    loadFixture({ message: B25.message, sigInput: B25.sigInput });
+  });
+
+  /* ---- rendering ---- */
+  function renderQuiet(message) {
+    clear(el.result);
+    clear(el.sfbox);
+    var p = mk('p', 'note', message);
+    el.result.appendChild(p);
+    if (lastGood) {
+      var head = mk('p');
+      var badge = mk('span', 'badge b-warn', 'STALE');
+      head.appendChild(badge);
+      head.appendChild(document.createTextNode('The base below was built from earlier input and is no longer current.'));
+      el.result.appendChild(head);
+      el.result.appendChild(renderBase(lastGood, true));
+      var b = mk('button', null, 'Restore the B.2.5 example');
+      b.type = 'button';
+      b.addEventListener('click', function () { loadFixture({ message: B25.message, sigInput: B25.sigInput }); });
+      var row = mk('div', 'row'); row.appendChild(b);
+      el.result.appendChild(row);
+    }
+    renderHmac(null);
+  }
+
+  function renderBase(res, stale) {
+    var box = mk('div', 'base' + (stale ? ' stale' : ''));
+    res.lines.forEach(function (l) {
+      var text = l.id + ': ' + l.value;
+      var endsSpace = text.charAt(text.length - 1) === ' ';
+      var line = mk('div', 'bline' + (endsSpace ? ' tsp' : ''));
+      line.appendChild(mk('span', 'txt', text));
+      box.appendChild(line);
+      var rule = mk('div', 'brule', 'Section ' + l.section + ', ' + l.rule + (endsSpace ? '. This line ends in a single space, marked by the dotted rule.' : ''));
+      box.appendChild(rule);
+    });
+    return box;
+  }
+
+  function renderErrors(errors) {
+    clear(el.result);
+    var head = mk('p');
+    head.appendChild(mk('span', 'badge b-err', 'NO BASE'));
+    head.appendChild(document.createTextNode(
+      errors.length === 1
+        ? 'The algorithm aborted. A conforming implementation also refuses to produce a base here.'
+        : errors.length + ' conditions aborted the algorithm. A conforming implementation also refuses to produce a base here.'));
+    el.result.appendChild(head);
+    errors.forEach(function (e) {
+      var d = mk('div', 'err-item');
+      var w = mk('p', 'what', 'RFC 9421 Section ' + e.section + ', ' + e.code);
+      d.appendChild(w);
+      if (e.id) {
+        var c = mk('p');
+        c.appendChild(document.createTextNode('Component identifier: '));
+        c.appendChild(mk('span', 'cid', e.id));
+        d.appendChild(c);
+      }
+      d.appendChild(mk('p', null, e.message));
+      if (e.quote) d.appendChild(mk('p', 'quote', 'RFC 9421 Section ' + e.section + ': "' + e.quote + '"'));
+      el.result.appendChild(d);
+    });
+    renderHmac(null);
+  }
+
+  function renderOk(res) {
+    clear(el.result);
+    var head = mk('p');
+    head.appendChild(mk('span', 'badge b-ok', 'BASE OK'));
+    head.appendChild(document.createTextNode(res.lines.length + ' lines, ' + res.bytes + ' bytes, no trailing newline.'));
+    el.result.appendChild(head);
+    el.result.appendChild(renderBase(res, false));
+    var row = mk('div', 'row');
+    var copy = mk('button', null, 'Copy the base');
+    copy.type = 'button';
+    var status = mk('span', 'note', '');
+    copy.addEventListener('click', function () {
+      var done = function (msg) { status.textContent = msg; };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(res.base).then(
+            function () { done('Copied, trailing spaces included, no trailing newline.'); },
+            function () { done('The browser refused clipboard access. Select the text above instead.'); });
+        } else {
+          done('This browser exposes no clipboard API here. Select the text above instead.');
+        }
+      } catch (e) { done('Clipboard unavailable. Select the text above instead.'); }
+    });
+    row.appendChild(copy);
+    row.appendChild(status);
+    el.result.appendChild(row);
+    lastGood = res;
+  }
+
+  function renderSfSelectors(components) {
+    clear(el.sfbox);
+    var needed = components.filter(function (c) {
+      /* Only field components can carry ;sf. Offering a type selector for
+         ";sf" on a derived component would invite the user to answer a question
+         that cannot lead anywhere, since that identifier aborts the build. */
+      if (c.name.charAt(0) === '@') return false;
+      var sf = paramGet(c, 'sf');
+      return sf && sf.t === 'bool' && sf.v === true;
+    });
+    needed.forEach(function (c) {
+      var id;
+      try { id = componentIdentifier(c); } catch (e) { return; }
+      var uid = 'sftype-' + id.replace(/[^A-Za-z0-9]+/g, '-');
+      var lab = mk('label', null, 'Structured Field type for ' + id);
+      lab.setAttribute('for', uid);
+      var sel = mk('select');
+      sel.id = uid;
+      [['', 'choose a type, this tool will not guess'], ['list', 'List'], ['dictionary', 'Dictionary'], ['item', 'Item or Inner List']]
+        .forEach(function (pair) {
+          var o = mk('option', null, pair[1]);
+          o.value = pair[0];
+          sel.appendChild(o);
+        });
+      sel.value = sfTypeChoices[id] || '';
+      sel.addEventListener('change', function () {
+        if (sel.value) sfTypeChoices[id] = sel.value; else delete sfTypeChoices[id];
+        render();
+      });
+      el.sfbox.appendChild(lab);
+      el.sfbox.appendChild(sel);
+    });
+  }
+
+  function renderHmac(res) {
+    clear(el.hmac);
+    if (!hmacAvailable()) {
+      var p = mk('p');
+      p.appendChild(mk('span', 'badge b-warn', 'NO CRYPTO'));
+      p.appendChild(document.createTextNode('crypto.subtle is not available in this context, so the page produces the signature base only. The base is the deliverable.'));
+      el.hmac.appendChild(p);
+      return;
+    }
+    if (!res) return;
+    var secret = el.secret.value.trim();
+    if (!secret) {
+      el.hmac.appendChild(mk('p', 'note', 'Paste a base64 shared secret to compute an HMAC-SHA-256 over the base above.'));
+      return;
+    }
+    var keyBytes;
+    try { keyBytes = base64ToBytes(secret); }
+    catch (e) {
+      var bad = mk('p');
+      bad.appendChild(mk('span', 'badge b-err', 'BAD SECRET'));
+      bad.appendChild(document.createTextNode(e.message));
+      el.hmac.appendChild(bad);
+      return;
+    }
+    if (keyBytes.length === 0) {
+      el.hmac.appendChild(mk('p', 'note', 'The shared secret decoded to zero bytes.'));
+      return;
+    }
+    var token = ++hmacToken;
+    hmacSha256Base64(secret, res.base).then(function (mac) {
+      if (token !== hmacToken) return;
+      clear(el.hmac);
+      var line = mk('p');
+      line.appendChild(document.createTextNode('HMAC-SHA-256 over the base, base64: '));
+      line.appendChild(mk('code', null, mac));
+      el.hmac.appendChild(line);
+      var pasted = el.sigval.value.trim();
+      if (!pasted) {
+        el.hmac.appendChild(mk('p', 'note', 'Paste the Signature field value for this label to compare.'));
+        return;
+      }
+      var theirs = null;
+      try {
+        var dict = pasted.charAt(0) === ':' ? null : sfvParse(pasted, 'dictionary');
+        if (dict) {
+          for (var i = 0; i < dict.length; i++) {
+            if (dict[i][0] === currentLabel || dict.length === 1) theirs = dict[i][1];
+          }
+        } else {
+          theirs = sfvParse(pasted, 'item');
+        }
+      } catch (e) { theirs = null; }
+      var verdict = mk('p');
+      if (!theirs || theirs.t !== 'bin') {
+        verdict.appendChild(mk('span', 'badge b-warn', 'UNREADABLE'));
+        verdict.appendChild(document.createTextNode('The Signature value did not parse as a Byte Sequence for label ' + currentLabel + '. Expected the form label=:base64:'));
+      } else {
+        var theirB64 = bytesToBase64(theirs.v);
+        if (theirB64 === mac) {
+          verdict.appendChild(mk('span', 'badge b-ok', 'MATCH'));
+          verdict.appendChild(document.createTextNode('The computed MAC equals the pasted Signature value.'));
+        } else {
+          verdict.appendChild(mk('span', 'badge b-err', 'NO MATCH'));
+          verdict.appendChild(document.createTextNode('Pasted: ' + theirB64));
+        }
+      }
+      el.hmac.appendChild(verdict);
+    }, function (e) {
+      if (token !== hmacToken) return;
+      clear(el.hmac);
+      el.hmac.appendChild(mk('p', 'note', 'The HMAC could not be computed: ' + e.message));
+    });
+  }
+  var hmacToken = 0;
+  var currentLabel = '';
+
+  function render() {
+    var rawMsg = el.msg.value;
+    var rawSig = el.siginput.value;
+    if (rawMsg.trim() === '') return renderQuiet('Paste a raw HTTP message to build its base.');
+    if (rawSig.trim() === '') return renderQuiet('Paste a Signature-Input value to build its base.');
+
+    var msg;
+    try { msg = parseHttpMessage(rawMsg); }
+    catch (e) {
+      clear(el.sfbox);
+      return renderErrors([{ code: 'unparseable message', section: '2.1', message: e.message, quote: '', id: '' }]);
+    }
+
+    var sigs;
+    try { sigs = parseSignatureInput(rawSig); }
+    catch (e) {
+      clear(el.sfbox);
+      var at = (typeof e.offset === 'number') ? ' Character offset ' + e.offset + '.' : '';
+      return renderErrors([{ code: 'unparseable Signature-Input', section: '4.1', message: e.message + '.' + at, quote: '', id: '' }]);
+    }
+
+    var prev = el.label.value;
+    clear(el.label);
+    sigs.forEach(function (s) {
+      var o = mk('option', null, s.label);
+      o.value = s.label;
+      el.label.appendChild(o);
+    });
+    var chosen = sigs.filter(function (s) { return s.label === prev; })[0] || sigs[0];
+    el.label.value = chosen.label;
+    el.label.disabled = sigs.length < 2;
+    currentLabel = chosen.label;
+
+    renderSfSelectors(chosen.components);
+
+    var req = null;
+    if (el.reqmsg.value.trim() !== '') {
+      try { req = parseHttpMessage(el.reqmsg.value); }
+      catch (e) {
+        return renderErrors([{ code: 'unparseable originating request', section: '2.4', message: e.message, quote: '', id: '' }]);
+      }
+    }
+
+    var res = buildSignatureBase({
+      message: msg, request: req, sigInput: chosen,
+      scheme: el.scheme.value, sfTypes: sfTypeChoices
+    });
+
+    if (!res.ok) return renderErrors(res.errors);
+    renderOk(res);
+    renderHmac(res);
+  }
+
+  var timer = null;
+  function schedule() { clearTimeout(timer); timer = setTimeout(render, 180); }
+  ['msg', 'siginput', 'reqmsg', 'secret', 'sigval'].forEach(function (k) {
+    el[k].addEventListener('input', schedule);
+  });
+  el.label.addEventListener('change', render);
+  el.scheme.addEventListener('change', render);
+
+  /* ---- self test ---- */
+  function renderTests(results) {
+    var body = el.testtable.querySelector('tbody');
+    clear(body);
+    var pass = 0, fail = 0, control = null;
+    results.forEach(function (r) {
+      var isControl = !!r.fx.control;
+      if (isControl) control = r;
+      else if (r.pass) pass++; else fail++;
+
+      var tr = mk('tr');
+      tr.appendChild(mk('td', null, r.fx.name));
+      tr.appendChild(mk('td', null, r.fx.section));
+      tr.appendChild(mk('td', 'num', String((r.expected === null || r.expected === undefined) ? 0 : String(r.expected).length)));
+      tr.appendChild(mk('td', 'num', String((r.got === null || r.got === undefined) ? 0 : String(r.got).length)));
+      var verdict = isControl ? (r.pass ? 'BROKEN' : 'FAIL as designed') : (r.pass ? 'PASS' : 'FAIL');
+      var td = mk('td', 'res ' + ((isControl ? !r.pass : r.pass) ? 'pass' : 'fail'), verdict);
+      tr.appendChild(td);
+      body.appendChild(tr);
+
+      var showDetail = el.showall.checked || (!r.pass && !isControl) || isControl;
+      if (showDetail) {
+        var dtr = mk('tr');
+        var dtd = mk('td');
+        dtd.colSpan = 5;
+        var box = mk('div', 'diffbox');
+        var d = firstDiff(String(r.expected), String(r.got));
+        box.textContent =
+          'expected: ' + String(r.expected) + '\n' +
+          'got:      ' + String(r.got) +
+          (d < 0 ? '\nidentical' : '\nfirst difference at byte offset ' + d +
+            '\n  expected here: ' + JSON.stringify(String(r.expected).slice(Math.max(0, d - 12), d + 12)) +
+            '\n  got here:      ' + JSON.stringify(String(r.got).slice(Math.max(0, d - 12), d + 12)));
+        dtd.appendChild(box);
+        dtr.appendChild(dtd);
+        body.appendChild(dtr);
+      }
+    });
+    el.testtable.hidden = false;
+
+    clear(el.testsummary);
+    var p = mk('p');
+    var controlOk = control && control.pass === false;
+    var allOk = fail === 0 && controlOk;
+    p.appendChild(mk('span', 'badge ' + (allOk ? 'b-ok' : 'b-err'), allOk ? 'SUITE OK' : 'SUITE FAILED'));
+    p.appendChild(document.createTextNode(
+      pass + ' of ' + (pass + fail) + ' checks pass, plus 1 positive control which ' +
+      (controlOk ? 'failed as designed. If that control ever reports PASS, the suite is not running.'
+        : 'did NOT fail. The suite is not running as designed and its results cannot be trusted.')));
+    el.testsummary.appendChild(p);
+  }
+
+  var lastResults = null;
+  el.runtests.addEventListener('click', function () {
+    el.runtests.disabled = true;
+    clear(el.testsummary);
+    el.testsummary.appendChild(mk('p', 'note', 'Running.'));
+    runVectors().then(function (results) {
+      lastResults = results;
+      renderTests(results);
+      el.runtests.disabled = false;
+    }, function (e) {
+      clear(el.testsummary);
+      var p = mk('p');
+      p.appendChild(mk('span', 'badge b-err', 'SUITE CRASHED'));
+      p.appendChild(document.createTextNode(String(e && e.message ? e.message : e)));
+      el.testsummary.appendChild(p);
+      el.runtests.disabled = false;
+    });
+  });
+  el.showall.addEventListener('change', function () { if (lastResults) renderTests(lastResults); });
+
+  /* ---- pre-input state: the B.2.5 example, already computed ---- */
+  el.example.value = String(FIXTURES.findIndex(function (f) { return f.section === 'B.2.5' && f.expect; }));
+  loadFixture({ message: B25.message, sigInput: B25.sigInput });
+})();
+/* ==== UI END ==== */
+</script>
+</body>
+</html>
