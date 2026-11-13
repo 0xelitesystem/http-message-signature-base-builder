@@ -125,4 +125,4 @@ What was taken: the test vectors printed in the RFC, used unchanged as expected 
 
 ## License
 
-MIT. Copyright (c) 2026 0xelitesystem.
+MIT. Copyright (c) 2026 RBL Industries LLC.
