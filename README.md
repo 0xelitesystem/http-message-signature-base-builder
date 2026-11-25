@@ -119,7 +119,7 @@ What was taken: the test vectors printed in the RFC, used unchanged as expected 
 
 ## Related
 
-- https://github.com/0xelitesystem/webhook-signature-verifier
+- https://github.com/0xelitesystem/multi-provider-webhook-verifier
 - https://github.com/0xelitesystem/http-header-analyzer
 - https://github.com/0xelitesystem/jwt-inspector
 
